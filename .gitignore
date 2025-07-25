@@ -1,0 +1,85 @@
+# ROS2 specific
+build/
+install/
+log/
+*.launch.py~
+*.py~
+*.cpp~
+*.hpp~
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.cache/
+.pytest_cache/
+
+# C++
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.cmake
+!CMakeLists.txt
+
+# System files
+.directory
+Thumbs.db
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+
+# Hardware specific (optional - uncomment if needed)
+# *.bag
+# *.db3
+
+# Calibration data (optional - you might want to track this)
+# calibration_data/
+# *.yaml
+
+# Media files (large files - consider Git LFS)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# ROS bag files (can be large)
+*.bag
+*.db3
+*.mcap
+
+# Gazebo logs
+.gazebo/
