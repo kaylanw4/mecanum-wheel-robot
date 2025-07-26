@@ -4,7 +4,7 @@
   <name>robot_bringup</name>
   <version>0.1.0</version>
   <description>Launch files and configuration for mecanum wheel robot</description>
-  <maintainer email="your.email@example.com">Your Name</maintainer>
+  <maintainer email="kaylanwang5@gmail.com">Kaylan Wang</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -20,11 +20,16 @@
   <depend>ros2_controllers</depend>
   <depend>joy</depend>
   <depend>teleop_twist_joy</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+  <depend>gz_ros2_control</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
+    <gazebo_ros gazebo_model_path="${prefix}/meshes" gazebo_media_path="${prefix}/meshes"/>
+    <resource_index_subfolder>meshes</resource_index_subfolder>
   </export>
 </package>

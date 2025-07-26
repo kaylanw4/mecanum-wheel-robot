@@ -1,0 +1,29 @@
+teleop_twist_joy_node:
+  ros__parameters:
+    # Linear movement (omnidirectional for mecanum) - FIXED forward/backward inversion
+    axis_linear:
+      x: 1    # Left stick Y - forward/backward
+      y: 0    # Left stick X - strafe left/right
+    scale_linear:
+      x: -5.0  # NEGATIVE to fix forward/backward direction (up stick = forward movement)
+      y: 5.0   # POSITIVE for correct left/right strafing
+    scale_linear_turbo:
+      x: -10.0  # NEGATIVE to fix turbo forward/backward direction
+      y: 10.0   # POSITIVE for correct turbo strafing
+
+    # Angular movement  
+    axis_angular:
+      yaw: 2  # Right stick X - rotation
+    scale_angular:
+      yaw: 5.0  # Rotation speed
+    scale_angular_turbo:
+      yaw: 10.0  # Turbo rotation speed
+
+    # Control settings with deadzone for better control
+    require_enable_button: true
+    enable_button: 4  # L1 button (deadman switch)
+    enable_turbo_button: 5  # R1 button (turbo mode)
+    
+    # Deadzone parameters for smoother control
+    deadzone: 0.1
+    autorepeat_rate: 20.0

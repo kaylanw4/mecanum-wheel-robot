@@ -7,7 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     joy_params = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'joystick.yaml'
+        'config', 'joystick_velocity.yaml'
     ])
     
     return LaunchDescription([
@@ -27,6 +27,6 @@ def generate_launch_description():
             executable='teleop_node',
             name='teleop_twist_joy_node',
             parameters=[joy_params],
-            remappings=[('/cmd_vel', '/mecanum_drive_controller/reference_unstamped')]  # Updated topic
+            remappings=[('/cmd_vel', '/cmd_vel')] 
         )
     ])
