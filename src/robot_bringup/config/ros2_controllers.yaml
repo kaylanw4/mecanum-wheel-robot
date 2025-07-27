@@ -36,8 +36,8 @@ mecanum_drive_controller:
         x: 0.0
         y: 0.0 
         theta: 0.0
-      wheels_radius: 0.04  # 40mm radius wheels
-      sum_of_robot_center_projection_on_X_Y_axis: 0.329  # lx + ly = 0.16 + 0.169 = 0.329
+      wheels_radius: 0.0395  # 40mm radius wheels
+      sum_of_robot_center_projection_on_X_Y_axis: 0.22  # lx + ly = 0.16 + 0.169 = 0.329
     
     # Frame IDs
     base_frame_id: "base_link"

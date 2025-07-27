@@ -1,0 +1,51 @@
+# Hardware configuration for Yahboom X3 Robot
+yahboom_hardware_driver:
+  ros__parameters:
+    # Serial communication settings
+    serial_port: "/dev/ttyUSB0"  # Default USB port (may be /dev/ttyACM0)
+    serial_baudrate: 115200
+    
+    # Frame IDs
+    imu_frame_id: "imu_link"
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    
+    # Publishing options
+    publish_odom_tf: false  # Set to true if not using robot_localization
+    
+    # Robot physical parameters
+    wheel_radius: 0.0395  # 40mm wheels
+    wheelbase_width: 0.22  # Distance between left and right wheels
+    wheelbase_length: 0.22  # Distance between front and rear wheels
+    
+    # Control limits
+    max_linear_velocity: 1.5   # m/s
+    max_angular_velocity: 3.0  # rad/s
+    
+    # Sensor publishing rates
+    imu_publish_rate: 50.0     # Hz
+    odom_publish_rate: 20.0    # Hz
+    battery_publish_rate: 1.0  # Hz
+
+# Joystick controller configuration
+yahboom_joystick_controller:
+  ros__parameters:
+    # Control parameters
+    max_linear_vel: 1.0
+    max_angular_vel: 2.0
+    deadzone: 0.1
+    
+    # Gear ratios
+    linear_gear_ratios: [0.33, 0.67, 1.0]
+    angular_gear_ratios: [0.25, 0.5, 0.75, 1.0]
+    
+    # Button debounce time (seconds)
+    button_debounce_time: 0.5
+
+# Joy node configuration  
+joy_node:
+  ros__parameters:
+    device_id: 0
+    deadzone: 0.1
+    autorepeat_rate: 20.0
+    coalesce_interval: 0.05
