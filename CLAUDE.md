@@ -2,113 +2,132 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Development Commands
 
-This is a ROS2 Humble mecanum wheel robot project running on NVIDIA Jetson Orin Nano with Yahboom hardware components. The project includes both real hardware control and Gazebo simulation capabilities for autonomous robotics development.
-
-**Hardware**: NVIDIA Jetson Orin Nano 8GB, Yahboom Robot Expansion Board V3.0, mecanum wheels, DC motors with encoders, PS4 controller
-**Software Stack**: ROS2 Humble, Gazebo Fortress, ros2_controllers, Ubuntu 22.04 LTS
-
-## Package Architecture
-
-- **robot_bringup**: Main launch files and system configuration (C++ package with ament_cmake)
-- **robot_description**: URDF models and robot description files (C++ package with ament_cmake) 
-- **robot_hardware**: Hardware drivers and interfaces (Python package with setuptools)
-- **robot_teleop**: Teleoperation and joystick control (Python package with setuptools)
-- **mecanum_robot_sim**: Simulation-specific components (C++ package with ament_cmake)
-
-## Common Development Commands
-
-### Build and Setup
+### Building and Installing
 ```bash
-# Build entire workspace
+# Build all packages in the workspace
 colcon build --symlink-install
 
 # Build specific package
-colcon build --packages-select robot_bringup
+colcon build --packages-select robot_hardware
 
-# Build with debug info
-colcon build --cmake-args -DCMAKE_BUILD_TYPE=Debug
-
-# Source workspace (add to ~/.bashrc)
+# Source the workspace (required after building)
 source install/setup.bash
-```
-
-### Testing
-```bash
-# Run all tests
-colcon test
-
-# Run tests for specific package
-colcon test --packages-select robot_hardware
-
-# Run Python linting tests (flake8, copyright, pep257)
-pytest src/robot_hardware/test/
-pytest src/robot_teleop/test/
-
-# View test results
-colcon test-result --all
-```
-
-### Launch System
-```bash
-# Launch joystick control
-ros2 launch robot_bringup joystick.launch.py
-
-# Launch Gazebo simulation
-ros2 launch robot_bringup gazebo_sim.launch.py
-
-# Launch with arguments
-ros2 launch robot_bringup gazebo_sim.launch.py use_sim_time:=true robot_name:=my_robot
-```
-
-### Development Tools
-```bash
-# Check ROS2 system
-ros2 doctor
-
-# List all packages
-colcon list
 
 # Install dependencies
 rosdep install --from-paths src --ignore-src -r -y
-
-# Check package dependencies
-rosdep check --from-paths src --ignore-src
 ```
 
-## Key Configuration Files
+### Testing and Linting
+```bash
+# Run Python linting (packages use ament_flake8, ament_pep257)
+colcon test --packages-select robot_hardware
+colcon test-result --verbose
 
-- `src/robot_bringup/config/joystick.yaml`: PS4 controller configuration
-- `src/robot_bringup/config/ros2_controllers.yaml`: Robot controller parameters
-- `src/robot_bringup/urdf/yahboomcar_chassis.urdf.xacro`: Robot description
+# Test specific functionality
+python3 -m pytest src/robot_hardware/test/
+```
 
-## Controller Architecture
+### Running the Robot System
+```bash
+# Main robot bringup (hardware + visualization)
+ros2 launch robot_bringup robot_bringup.launch.py
 
-The system uses ros2_controllers framework with:
-- **joint_state_broadcaster**: Publishes joint states
-- **mecanum_drive_controller**: Handles mecanum wheel kinematics
-- Topic remapping: `/cmd_vel` → `/mecanum_drive_controller/reference_unstamped`
+# Hardware only (no joystick)
+ros2 launch robot_bringup robot_bringup.launch.py use_joystick:=false
 
-## Simulation vs Hardware
+# With RViz visualization
+ros2 launch robot_bringup robot_bringup.launch.py use_rviz:=true
 
-- **Simulation**: Uses ros_ign_gazebo (Ignition Gazebo) with ros_ign_bridge
-- **Hardware**: USB serial communication with Yahboom expansion board (115200 baud)
-- Both modes use same controller configuration and launch structure
+# Joystick control standalone
+ros2 launch robot_bringup joystick.launch.py
+```
 
-## Development Workflow
+### Debugging and Monitoring
+```bash
+# Check hardware connection
+ls /dev/tty{USB,ACM}*
 
-1. Make changes in `src/` directory
-2. Build with `colcon build --symlink-install` 
-3. Source workspace: `source install/setup.bash`
-4. Test functionality with appropriate launch files
-5. Run tests: `colcon test` for affected packages
-6. Commit changes following conventional commit format
+# Monitor robot topics
+ros2 topic list
+ros2 topic echo /cmd_vel
+ros2 topic echo /imu/data_raw
+ros2 topic echo /joint_states
 
-## Important Notes
+# Test joystick input
+ros2 topic echo /joy
 
-- Python packages use setuptools with pytest for testing
-- C++ packages use ament_cmake build system
-- All packages include standard ROS2 linting tests (flake8, copyright, pep257)
-- Launch files support both simulation and hardware modes
-- Robot description uses xacro for parameterized URDF generation
+# Check system status
+ros2 doctor
+ros2 node list
+```
+
+## Architecture Overview
+
+### Package Structure
+- **robot_bringup**: Main launch files, URDF models, configurations
+- **robot_hardware**: Yahboom hardware driver using official Rosmaster_Lib
+- **robot_teleop**: Enhanced joystick controller with gear modes and RGB/buzzer control  
+- **robot_description**: Robot URDF descriptions and meshes
+- **mecanum_robot_sim**: Simulation components
+
+### Hardware Interface
+The system uses a USB serial connection to communicate with the Yahboom Robot Expansion Board V3.0 (STM32F103RCT6). The `yahboom_driver.py` integrates the official Yahboom `Rosmaster_Lib` library to:
+- Control 4x mecanum wheels with encoders (520 CPR)  
+- Read IMU data (accelerometer, gyroscope, magnetometer)
+- Monitor battery voltage
+- Control RGB lights and buzzer
+- Publish odometry and joint states
+
+### Control Flow
+1. **Joy node** reads PS4 controller input → `/joy` topic
+2. **Yahboom joystick controller** processes joy input with gear modes → `/cmd_vel` topic  
+3. **Yahboom hardware driver** receives cmd_vel → sends to robot via USB serial
+4. **Robot state publisher** manages transforms from URDF
+5. **Joint state publisher** handles wheel joint states for visualization
+
+### Key Topics
+- `/cmd_vel` (geometry_msgs/Twist): Velocity commands
+- `/joy` (sensor_msgs/Joy): Joystick input
+- `/imu/data_raw` (sensor_msgs/Imu): IMU sensor data
+- `/joint_states` (sensor_msgs/JointState): Wheel positions
+- `/battery_voltage` (std_msgs/Float32): Battery status
+- `/rgb_light` (std_msgs/Int32): RGB light control
+- `/buzzer` (std_msgs/Bool): Buzzer control
+
+### Configuration Files
+- Hardware parameters: `src/robot_bringup/config/hardware.yaml`
+- Joystick mappings: `src/robot_bringup/config/joystick.yaml` 
+- Robot URDF: `src/robot_bringup/urdf/yahboomcar_chassis.urdf.xacro`
+- RViz config: `src/robot_bringup/config/robot_view.rviz`
+
+## Important Development Notes
+
+### Hardware Dependencies
+- Requires Yahboom `Rosmaster_Lib` Python library for hardware communication
+- USB serial connection on `/dev/ttyUSB0` (configurable via launch parameter)
+- PS4 controller paired via Bluetooth for joystick control
+
+### Joystick Controls (PS4 Controller)
+- **L1**: Deadman switch (hold to enable movement)
+- **Left stick**: Forward/backward and strafe control
+- **Right stick X**: Rotation
+- **R1**: Turbo mode (increases speed)
+- **Triangle**: Cycle linear gear ratios
+- **Square**: Cycle angular gear ratios  
+- **Circle**: Cycle RGB light patterns
+- **X**: Toggle buzzer on/off
+
+### Serial Port Configuration
+The robot communicates via USB serial. Add user to dialout group:
+```bash
+sudo usermod -a -G dialout $USER
+```
+
+### Python Package Structure
+Python packages (`robot_hardware`, `robot_teleop`) use standard ROS2 Python structure with:
+- `setup.py` for package configuration and entry points
+- `package.xml` for ROS2 dependencies
+- Source code in package-named subdirectories
+- Test files in `test/` directories
