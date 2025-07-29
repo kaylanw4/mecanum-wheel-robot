@@ -1,0 +1,13 @@
+# Simple Room Map for Testing Navigation
+# File: src/robot_bringup/maps/simple_room.yaml
+
+image: simple_room.pgm
+resolution: 0.05  # meters per pixel
+origin: [-5.0, -5.0, 0.0]  # [x, y, yaw] in meters
+occupied_thresh: 0.65
+free_thresh: 0.196
+negate: 0
+
+# This map represents a 10m x 10m room with some obstacles
+# The robot starts at the center (0, 0)
+# Use this for initial navigation testing without sensors
