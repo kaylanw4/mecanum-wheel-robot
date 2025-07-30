@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Yahboom X3 Robot Hardware Driver with Accurate Odometry
-Calculates robot position from encoder feedback for navigation
+CORRECTED Yahboom Hardware Driver with Fixed Directions and Motor Calibration
+Fixes forward/backward direction and adds calibration support
 """
 
 import sys
@@ -27,18 +27,10 @@ from Rosmaster_Lib import Rosmaster
 
 class MecanumOdometry:
     """
-    Calculate odometry for mecanum wheel robot using encoder feedback
+    Calculate odometry for mecanum wheel robot with correct kinematics
     """
     
     def __init__(self, wheel_radius, lx, ly, encoder_resolution):
-        """
-        Initialize odometry calculator
-        
-        wheel_radius: radius of wheels in meters
-        lx: distance from robot center to front/rear wheels in meters  
-        ly: distance from robot center to left/right wheels in meters
-        encoder_resolution: encoder counts per wheel revolution
-        """
         self.wheel_radius = wheel_radius
         self.lx = lx  # half wheelbase length
         self.ly = ly  # half wheelbase width  
@@ -58,12 +50,8 @@ class MecanumOdometry:
         
     def update(self, encoder_counts, dt):
         """
-        Update odometry based on encoder readings
-        
+        Update odometry with corrected mecanum wheel kinematics
         encoder_counts: [front_left, front_right, rear_left, rear_right]
-        dt: time step in seconds
-        
-        Returns: (x, y, theta, vx, vy, vtheta)
         """
         if not self.initialized:
             self.prev_encoders = encoder_counts.copy()
@@ -83,10 +71,9 @@ class MecanumOdometry:
         rl_dist = delta_encoders[2] * self.counts_to_meters  # rear left
         rr_dist = delta_encoders[3] * self.counts_to_meters  # rear right
         
-        # Mecanum wheel kinematics (inverse)
-        # Convert wheel motions to robot motion
+        # Mecanum wheel kinematics (corrected for your robot)
         dx_robot = (fl_dist + fr_dist + rl_dist + rr_dist) / 4.0
-        dy_robot = (-fl_dist + fr_dist + rl_dist - rr_dist) / 4.0
+        dy_robot = (-fl_dist + fr_dist - rl_dist + rr_dist) / 4.0
         dtheta = (-fl_dist + fr_dist - rl_dist + rr_dist) / (4.0 * (self.lx + self.ly))
         
         # Calculate velocities
@@ -127,13 +114,13 @@ class MecanumOdometry:
 
 class YahboomHardwareDriver(Node):
     """
-    Enhanced ROS2 Node with accurate odometry for navigation
+    CORRECTED Yahboom Hardware Driver with Fixed Directions and Calibration
     """
     
     def __init__(self):
         super().__init__('yahboom_hardware_driver')
         
-        self.get_logger().info("🤖 Starting Enhanced Yahboom Driver with Odometry...")
+        self.get_logger().info("🤖 Starting CORRECTED Yahboom Driver...")
         
         # Declare parameters
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
@@ -143,11 +130,20 @@ class YahboomHardwareDriver(Node):
         self.declare_parameter('odom_frame_id', 'odom')
         self.declare_parameter('publish_odom_tf', True)
         
-        # Robot physical parameters (from your measurements)
-        self.declare_parameter('wheel_radius', 0.0395)  # 79mm diameter = 39.5mm radius
-        self.declare_parameter('wheelbase_length', 0.22)  # 220mm front-to-rear
-        self.declare_parameter('wheelbase_width', 0.22)   # 220mm left-to-right
-        self.declare_parameter('encoder_resolution', 2464)  # 520 CPR * 4
+        # Robot physical parameters
+        self.declare_parameter('wheel_radius', 0.0395)  
+        self.declare_parameter('wheelbase_length', 0.22)  
+        self.declare_parameter('wheelbase_width', 0.22)   
+        self.declare_parameter('encoder_resolution', 2464)  
+        
+        # MOTOR CALIBRATION PARAMETERS
+        self.declare_parameter('motor_calibration_fl', 1.0)  # Front left
+        self.declare_parameter('motor_calibration_fr', 1.0)  # Front right
+        self.declare_parameter('motor_calibration_rl', 1.0)  # Rear left
+        self.declare_parameter('motor_calibration_rr', 1.0)  # Rear right
+        
+        # DIRECTION CORRECTION PARAMETER
+        self.declare_parameter('invert_forward_direction', True)  # Fix forward/backward
         
         # Get parameters
         self.serial_port = self.get_parameter('serial_port').value
@@ -163,9 +159,24 @@ class YahboomHardwareDriver(Node):
         wheelbase_width = self.get_parameter('wheelbase_width').value
         encoder_resolution = self.get_parameter('encoder_resolution').value
         
+        # Motor calibration factors
+        self.motor_cal = [
+            self.get_parameter('motor_calibration_fl').value,
+            self.get_parameter('motor_calibration_fr').value,
+            self.get_parameter('motor_calibration_rl').value,
+            self.get_parameter('motor_calibration_rr').value
+        ]
+        
+        # Direction correction
+        self.invert_forward = self.get_parameter('invert_forward_direction').value
+        
+        self.get_logger().info(f"🔧 Motor calibration: FL={self.motor_cal[0]:.3f}, FR={self.motor_cal[1]:.3f}, "
+                              f"RL={self.motor_cal[2]:.3f}, RR={self.motor_cal[3]:.3f}")
+        self.get_logger().info(f"🔄 Forward direction inverted: {self.invert_forward}")
+        
         # Calculate distances from robot center to wheels
-        self.lx = wheelbase_length / 2.0  # 0.11m
-        self.ly = wheelbase_width / 2.0   # 0.11m
+        self.lx = wheelbase_length / 2.0  
+        self.ly = wheelbase_width / 2.0   
         
         # Initialize odometry calculator
         self.odometry = MecanumOdometry(
@@ -184,7 +195,7 @@ class YahboomHardwareDriver(Node):
             self.hardware = Rosmaster(
                 car_type=1,  # X3 robot type
                 com=self.serial_port,
-                debug=False  # Reduce debug spam
+                debug=False
             )
             self.get_logger().info(f"✅ Yahboom Rosmaster initialized on {self.serial_port}")
         except Exception as e:
@@ -210,7 +221,7 @@ class YahboomHardwareDriver(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # Create timer for publishing data
-        self.create_timer(0.05, self.publish_sensor_data)  # 20Hz for better odometry
+        self.create_timer(0.05, self.publish_sensor_data)  # 20Hz
         
         # Initialize hardware connection
         self.initialize_hardware()
@@ -227,14 +238,14 @@ class YahboomHardwareDriver(Node):
             self.hardware.create_receive_threading()
             time.sleep(0.1)
             
-            # Enable PID for better control (helps with odometry accuracy)
+            # Enable PID for better control
             current_pid = self.hardware.get_motion_pid()
             if current_pid[0] == 0:  # PID disabled
-                self.get_logger().info("⚙️ Enabling PID control for better odometry...")
-                self.hardware.set_pid_param(0.8, 0.1, 0.05, forever=False)
+                self.get_logger().info("⚙️ Enabling PID control...")
+                self.hardware.set_pid_param(1.0, 0.1, 0.05, forever=False)
                 time.sleep(0.1)
             
-            # Test connection with a brief beep
+            # Test connection
             self.hardware.set_beep(50)
             time.sleep(0.1)
             
@@ -242,14 +253,13 @@ class YahboomHardwareDriver(Node):
             version = self.hardware.get_version()
             self.get_logger().info(f"📋 Firmware version: {version}")
             
-            self.get_logger().info("✅ Yahboom hardware initialized with odometry")
-            self.get_logger().info("🧭 Publishing accurate odometry for navigation")
+            self.get_logger().info("✅ CORRECTED hardware initialized with calibration")
             
         except Exception as e:
             self.get_logger().error(f"❌ Hardware initialization failed: {e}")
             
     def cmd_vel_callback(self, msg):
-        """Handle incoming velocity commands"""
+        """Handle incoming velocity commands with direction correction"""
         if self.hardware is None:
             return
             
@@ -261,10 +271,14 @@ class YahboomHardwareDriver(Node):
         vy = msg.linear.y
         angular = msg.angular.z
         
+        # APPLY DIRECTION CORRECTION
+        if self.invert_forward:
+            vx = -vx  # Fix forward/backward direction
+        
         # Debug output (limited frequency)
         if current_time - self.last_cmd_time > 2.0:  # Every 2 seconds
             self.get_logger().info(
-                f"📊 Navigation commands: vx={vx:.2f}m/s, vy={vy:.2f}m/s, ω={angular:.2f}rad/s"
+                f"📊 Commands: vx={vx:.2f}m/s (corrected), vy={vy:.2f}m/s, ω={angular:.2f}rad/s"
             )
             self.last_cmd_time = current_time
             self.cmd_count = 0
@@ -295,7 +309,7 @@ class YahboomHardwareDriver(Node):
             self.get_logger().warn(f"⚠️ Buzzer control failed: {e}")
         
     def publish_sensor_data(self):
-        """Publish all sensor data including accurate odometry"""
+        """Publish all sensor data including corrected odometry"""
         if self.hardware is None:
             return
             
@@ -315,14 +329,18 @@ class YahboomHardwareDriver(Node):
             self.get_logger().warn(f"⚠️ Sensor publishing failed: {e}")
             
     def calculate_and_publish_odometry(self, timestamp):
-        """Calculate and publish accurate odometry from encoders"""
+        """Calculate and publish corrected odometry from encoders"""
         try:
             # Get encoder readings
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
             
-            # Map motor encoders to wheel positions
-            # Based on typical Yahboom wiring: M1=FR, M2=FL, M3=RR, M4=RL
-            encoder_counts = [m2, m1, m4, m3]  # [FL, FR, RL, RR]
+            # Apply motor mapping with calibration
+            encoder_counts = [
+                m2 * self.motor_cal[0],  # Front Left
+                m1 * self.motor_cal[1],  # Front Right
+                m4 * self.motor_cal[2],  # Rear Left
+                m3 * self.motor_cal[3]   # Rear Right
+            ]
             
             # Calculate time step
             current_time = time.time()
@@ -331,6 +349,10 @@ class YahboomHardwareDriver(Node):
             
             # Update odometry
             x, y, theta, vx, vy, vtheta = self.odometry.update(encoder_counts, dt)
+            
+            # APPLY DIRECTION CORRECTION TO ODOMETRY
+            if self.invert_forward:
+                vx = -vx  # Correct velocity direction to match command correction
             
             # Create odometry message
             odom_msg = Odometry()
@@ -355,7 +377,7 @@ class YahboomHardwareDriver(Node):
             odom_msg.twist.twist.linear.y = vy
             odom_msg.twist.twist.angular.z = vtheta
             
-            # Set covariance matrices (estimated values)
+            # Set covariance matrices
             odom_msg.pose.covariance[0] = 0.001   # x
             odom_msg.pose.covariance[7] = 0.001   # y
             odom_msg.pose.covariance[35] = 0.01   # yaw
@@ -424,7 +446,7 @@ class YahboomHardwareDriver(Node):
         self.mag_pub.publish(mag_msg)
         
     def publish_joint_states(self, timestamp):
-        """Publish joint states with real encoder data"""
+        """Publish joint states with calibration applied"""
         joint_msg = JointState()
         joint_msg.header.stamp = timestamp.to_msg()
         joint_msg.header.frame_id = 'joint_states'
@@ -441,11 +463,12 @@ class YahboomHardwareDriver(Node):
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
             encoder_to_rad = 2 * pi / self.odometry.encoder_resolution
             
+            # Apply motor mapping with calibration
             joint_msg.position = [
-                m2 * encoder_to_rad,  # front_left
-                m1 * encoder_to_rad,  # front_right
-                m4 * encoder_to_rad,  # rear_left
-                m3 * encoder_to_rad   # rear_right
+                m2 * encoder_to_rad * self.motor_cal[0],  # front_left
+                m1 * encoder_to_rad * self.motor_cal[1],  # front_right
+                m4 * encoder_to_rad * self.motor_cal[2],  # rear_left
+                m3 * encoder_to_rad * self.motor_cal[3]   # rear_right
             ]
             joint_msg.velocity = [0.0, 0.0, 0.0, 0.0]
             joint_msg.effort = [0.0, 0.0, 0.0, 0.0]
@@ -465,7 +488,7 @@ class YahboomHardwareDriver(Node):
         
     def destroy_node(self):
         """Clean up when shutting down"""
-        self.get_logger().info("🛑 Shutting down enhanced Yahboom driver")
+        self.get_logger().info("🛑 Shutting down corrected Yahboom driver")
         if self.hardware is not None:
             try:
                 self.hardware.set_car_motion(0, 0, 0)

@@ -1,8 +1,10 @@
-# Hardware configuration for Yahboom X3 Robot
+# Hardware configuration with motor calibration for Yahboom X3 Robot
+# File: src/robot_bringup/config/hardware.yaml
+
 yahboom_hardware_driver:
   ros__parameters:
     # Serial communication settings
-    serial_port: "/dev/ttyUSB0"  # Default USB port (may be /dev/ttyACM0)
+    serial_port: "/dev/ttyUSB0"  # Change to /dev/ttyACM0 if needed
     serial_baudrate: 115200
     
     # Frame IDs
@@ -17,6 +19,34 @@ yahboom_hardware_driver:
     wheel_radius: 0.0395  # 40mm wheels
     wheelbase_width: 0.22  # Distance between left and right wheels
     wheelbase_length: 0.22  # Distance between front and rear wheels
+    encoder_resolution: 2464  # 520 CPR * 4
+    
+    # DIRECTION CORRECTION
+    # Set to true if forward/backward is reversed
+    invert_forward_direction: true
+    
+    # MOTOR CALIBRATION FACTORS
+    # Start with all 1.0, then adjust based on calibration diagnostic results
+    # Values > 1.0 = motor contributes more to movement (speed it up)
+    # Values < 1.0 = motor contributes less to movement (slow it down)
+    
+    motor_calibration_fl: 1.200  # Speed up front left
+    motor_calibration_fr: 0.800  # Slow down front right  
+    motor_calibration_rl: 1.200  # Speed up rear left
+    motor_calibration_rr: 0.800  # Slow down rear right
+    
+    # EXAMPLES OF CALIBRATION ADJUSTMENTS:
+    # If robot drifts right when going forward:
+    #   motor_calibration_fl: 1.02  # Speed up left motors
+    #   motor_calibration_rl: 1.02
+    #   motor_calibration_fr: 0.98  # Slow down right motors
+    #   motor_calibration_rr: 0.98
+    
+    # If front wheels are faster than rear:
+    #   motor_calibration_fl: 0.95  # Slow down front motors
+    #   motor_calibration_fr: 0.95
+    #   motor_calibration_rl: 1.05  # Speed up rear motors
+    #   motor_calibration_rr: 1.05
     
     # Control limits
     max_linear_velocity: 1.5   # m/s

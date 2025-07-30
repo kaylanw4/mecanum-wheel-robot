@@ -47,6 +47,12 @@ def generate_launch_description():
     serial_port = LaunchConfiguration('serial_port')
     publish_odom_tf = LaunchConfiguration('publish_odom_tf')
     
+    # FIXED: Load hardware configuration file
+    hardware_config = PathJoinSubstitution([
+        FindPackageShare('robot_bringup'),
+        'config', 'hardware.yaml'
+    ])
+    
     # Robot description
     robot_description_content = ParameterValue(
         Command(['xacro ', 
@@ -81,21 +87,21 @@ def generate_launch_description():
         }]
     )
     
-    # Yahboom hardware driver
+    # FIXED: Yahboom hardware driver with config file loading
     yahboom_driver = Node(
         package='robot_hardware',
         executable='yahboom_driver',
         name='yahboom_hardware_driver',
         output='screen',
-        parameters=[{
-            'serial_port': serial_port,
-            'serial_baudrate': 115200,
-            'imu_frame_id': 'imu_link',
-            'base_frame_id': 'base_link',
-            'odom_frame_id': 'odom',
-            'publish_odom_tf': publish_odom_tf,
-            'use_sim_time': False
-        }]
+        parameters=[
+            hardware_config,  # Load hardware.yaml config file FIRST
+            {
+                # Launch arguments override config file values
+                'serial_port': serial_port,
+                'publish_odom_tf': publish_odom_tf,
+                'use_sim_time': False
+            }
+        ]
     )
     
     # Joy node (PS4 controller input)
