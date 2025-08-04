@@ -64,7 +64,7 @@ enhanced_yahboom_driver:
     
     # ===== CONTROL PARAMETERS =====
     control_frequency: 50.0  # Hz - how often to update motor commands
-    max_velocity: 1.5        # m/s - maximum linear velocity
+    max_velocity: 2.75        # m/s - maximum linear velocity
     
     # Velocity limits for safety
     max_linear_velocity: 1.5   # m/s

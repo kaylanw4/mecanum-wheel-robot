@@ -21,8 +21,8 @@ class YahboomJoystickController(Node):
         super().__init__('yahboom_joystick_controller')
         
         # Declare parameters
-        self.declare_parameter('max_linear_vel', 1.0)
-        self.declare_parameter('max_angular_vel', 2.0)
+        self.declare_parameter('max_linear_vel', 1.77)
+        self.declare_parameter('max_angular_vel', 1.77)
         self.declare_parameter('deadzone', 0.1)
         
         # Get parameters
@@ -118,8 +118,8 @@ class YahboomJoystickController(Node):
         right_x = self._apply_deadzone(right_x)
         
         # Calculate velocities
-        # Left stick Y: forward/backward (note: joystick Y is typically inverted)
-        vx = -left_y * self.max_linear_vel * self.linear_gear
+        # Left stick Y: forward/backward (removed inversion to fix forward/backward direction)
+        vx = left_y * self.max_linear_vel * self.linear_gear
         
         # Left stick X: strafe left/right
         vy = left_x * self.max_linear_vel * self.linear_gear

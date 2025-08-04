@@ -214,6 +214,18 @@ class EnhancedYahboomDriver(Node):
     Enhanced Yahboom Hardware Driver with PROPER Motor Calibration
     """
     
+    # Centralized motor/encoder mapping arrays for easy configuration
+    # Hardware returns encoders as [m1, m2, m3, m4], we need [FL, FR, RL, RR]
+    ENCODER_TO_WHEEL_MAP = [1, 0, 3, 2]  # [m2→FL, m1→FR, m4→RL, m3→RR]
+    
+    # When sending motor commands to hardware, map wheel indices to motor indices
+    # hardware.set_motor(motor1, motor0, motor3, motor2) expects [FR, FL, RR, RL]
+    WHEEL_TO_MOTOR_MAP = [1, 0, 3, 2]  # [FL→motor1, FR→motor0, RL→motor3, RR→motor2]
+    
+    # Sign corrections for PID feedback to match target signs [FL, FR, RL, RR]
+    # Adjust these +1/-1 values to fix PID target vs measured sign mismatches
+    ENCODER_SIGN_CORRECTION = [-1, -1, -1, -1]  # Flip encoder signs to match targets
+    
     def __init__(self):
         super().__init__('enhanced_yahboom_driver')
         
@@ -234,19 +246,19 @@ class EnhancedYahboomDriver(Node):
         self.declare_parameter('encoder_resolution', 2464)
         
         # PID parameters for each wheel
-        self.declare_parameter('pid_kp', 1.5)  
-        self.declare_parameter('pid_ki', 0.3)  
-        self.declare_parameter('pid_kd', 0.05) 
+        self.declare_parameter('pid_kp', 2.0)  
+        self.declare_parameter('pid_ki', 0.0)  
+        self.declare_parameter('pid_kd', 0.0) 
         
         # PROPER Motor calibration factors - now applied to motor commands, not targets
         self.declare_parameter('motor_cal_fl', 1.0)  # Front left
-        self.declare_parameter('motor_cal_fr', 1.0)  # Front right
-        self.declare_parameter('motor_cal_rl', 1.0)  # Rear left
+        self.declare_parameter('motor_cal_fr', 0.90)  # Front right
+        self.declare_parameter('motor_cal_rl', 1.10)  # Rear left
         self.declare_parameter('motor_cal_rr', 1.0)  # Rear right
         
         # Control parameters
         self.declare_parameter('control_frequency', 50.0)  # Hz
-        self.declare_parameter('max_velocity', 1.5)  # m/s
+        self.declare_parameter('max_velocity', 2.75)  # m/s
         self.declare_parameter('use_hybrid_control', True)  
         
         # Get parameters
@@ -414,7 +426,8 @@ class EnhancedYahboomDriver(Node):
         try:
             # Get current encoder readings
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
-            current_encoders = [m2, m1, m4, m3]  # Map to FL, FR, RL, RR
+            raw_encoders = [m1, m2, m3, m4]
+            current_encoders = [raw_encoders[i] for i in self.ENCODER_TO_WHEEL_MAP]  # Map to FL, FR, RL, RR
             
             # Calculate measured wheel velocities from encoders with PROPER SIGNS
             current_time = time.time()
@@ -425,8 +438,8 @@ class EnhancedYahboomDriver(Node):
                 for i in range(4):
                     delta_counts = current_encoders[i] - self.prev_encoder_counts[i]
                     delta_radians = (delta_counts * 2 * pi) / self.kinematics.encoder_resolution
-                    # FIXED: Ensure measured velocities have same sign convention as targets
-                    self.measured_wheel_vels[i] = delta_radians / dt
+                    # Apply sign correction to match PID target signs
+                    self.measured_wheel_vels[i] = (delta_radians / dt) * self.ENCODER_SIGN_CORRECTION[i]
             
             # HYBRID CONTROL with PROPER calibration
             vx, vy, vz = self.last_cmd_vel
@@ -452,11 +465,13 @@ class EnhancedYahboomDriver(Node):
                         motor_commands.append(int(calibrated_command))
                         
                     # Send calibrated motor commands to hardware
+                    # Map wheel commands [FL, FR, RL, RR] to hardware motor order
+                    hw_commands = [motor_commands[i] for i in self.WHEEL_TO_MOTOR_MAP]
                     self.hardware.set_motor(
-                        motor_commands[1],  # Front right
-                        motor_commands[0],  # Front left  
-                        motor_commands[3],  # Rear right
-                        motor_commands[2]   # Rear left
+                        hw_commands[0],  # Motor 0 
+                        hw_commands[1],  # Motor 1
+                        hw_commands[2],  # Motor 2
+                        hw_commands[3]   # Motor 3
                     )
                 else:
                     # Fallback to set_car_motion
@@ -553,7 +568,8 @@ class EnhancedYahboomDriver(Node):
         try:
             # Get encoder readings
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
-            encoder_counts = [m2, m1, m4, m3]  # Map to FL, FR, RL, RR
+            raw_encoders = [m1, m2, m3, m4]
+            encoder_counts = [raw_encoders[i] for i in self.ENCODER_TO_WHEEL_MAP]  # Map to FL, FR, RL, RR
             
             # Update odometry
             x, y, theta, vx, vy, vtheta = self.kinematics.update_odometry(encoder_counts)
@@ -665,13 +681,15 @@ class EnhancedYahboomDriver(Node):
         try:
             # Get encoder data and convert to wheel angles
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
+            raw_encoders = [m1, m2, m3, m4]
+            wheel_encoders = [raw_encoders[i] for i in self.ENCODER_TO_WHEEL_MAP]  # Map to FL, FR, RL, RR
             encoder_to_rad = 2 * pi / self.kinematics.encoder_resolution
             
             joint_msg.position = [
-                m2 * encoder_to_rad,  # front_left
-                m1 * encoder_to_rad,  # front_right
-                m4 * encoder_to_rad,  # rear_left
-                m3 * encoder_to_rad   # rear_right
+                wheel_encoders[0] * encoder_to_rad,  # front_left
+                wheel_encoders[1] * encoder_to_rad,  # front_right
+                wheel_encoders[2] * encoder_to_rad,  # rear_left
+                wheel_encoders[3] * encoder_to_rad   # rear_right
             ]
             joint_msg.velocity = self.measured_wheel_vels.copy()
             joint_msg.effort = [0.0, 0.0, 0.0, 0.0]
