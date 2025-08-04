@@ -1,7 +1,7 @@
-# Hardware configuration with motor calibration for Yahboom X3 Robot
-# File: src/robot_bringup/config/hardware.yaml
+# Enhanced Hardware Configuration with PID Control and Motor Calibration
+# File: src/robot_bringup/config/enhanced_hardware.yaml
 
-yahboom_hardware_driver:
+enhanced_yahboom_driver:
   ros__parameters:
     # Serial communication settings
     serial_port: "/dev/ttyUSB0"  # Change to /dev/ttyACM0 if needed
@@ -19,63 +19,103 @@ yahboom_hardware_driver:
     wheel_radius: 0.0395  # 40mm wheels
     wheelbase_width: 0.22  # Distance between left and right wheels
     wheelbase_length: 0.22  # Distance between front and rear wheels
-    encoder_resolution: 2464  # 520 CPR * 4
+    encoder_resolution: 2464  # 520 CPR * 4 (with quadrature)
     
-    # DIRECTION CORRECTION
-    # Set to true if forward/backward is reversed
-    invert_forward_direction: true
+    # ===== PID CONTROL PARAMETERS =====
+    # These are the key parameters for fine-tuned control
+    # Start with these values and tune based on your robot's behavior
     
-    # MOTOR CALIBRATION FACTORS
-    # Start with all 1.0, then adjust based on calibration diagnostic results
-    # Values > 1.0 = motor contributes more to movement (speed it up)
-    # Values < 1.0 = motor contributes less to movement (slow it down)
+    pid_kp: 2.0   # Proportional gain - how aggressively to correct errors
+    pid_ki: 0.0   # Integral gain - eliminates steady-state errors  
+    pid_kd: 0.0   # Derivative gain - reduces oscillations
     
-    motor_calibration_fl: 1.200  # Speed up front left
-    motor_calibration_fr: 0.800  # Slow down front right  
-    motor_calibration_rl: 1.200  # Speed up rear left
-    motor_calibration_rr: 0.800  # Slow down rear right
+    # PID Tuning Guide:
+    # 1. Start with Kp=2.0, Ki=0.0, Kd=0.0
+    # 2. Increase Kp until system becomes unstable, then reduce by 50%
+    # 3. Add Ki slowly (0.1, 0.2, 0.5) to eliminate steady-state error
+    # 4. Add small Kd (0.05, 0.1) to reduce oscillations
     
-    # EXAMPLES OF CALIBRATION ADJUSTMENTS:
-    # If robot drifts right when going forward:
-    #   motor_calibration_fl: 1.02  # Speed up left motors
-    #   motor_calibration_rl: 1.02
-    #   motor_calibration_fr: 0.98  # Slow down right motors
-    #   motor_calibration_rr: 0.98
+    # ===== MOTOR CALIBRATION =====
+    # These factors compensate for physical differences between motors
+    # Values > 1.0 = make motor work harder
+    # Values < 1.0 = make motor work less hard
+    # Start with all 1.0 and adjust based on calibration results
     
-    # If front wheels are faster than rear:
-    #   motor_calibration_fl: 0.95  # Slow down front motors
-    #   motor_calibration_fr: 0.95
-    #   motor_calibration_rl: 1.05  # Speed up rear motors
-    #   motor_calibration_rr: 1.05
+    motor_cal_fl: 1.0  # Front Left motor calibration
+    motor_cal_fr: 1.0  # Front Right motor calibration  
+    motor_cal_rl: 1.0  # Rear Left motor calibration
+    motor_cal_rr: 1.0  # Rear Right motor calibration
     
-    # Control limits
+    # Calibration procedure:
+    # 1. Set all values to 1.0
+    # 2. Command robot to drive straight forward at 0.2 m/s
+    # 3. Measure which direction robot drifts
+    # 4. Adjust calibration factors:
+    #    - If drifts right: increase left motor factors OR decrease right motor factors
+    #    - If drifts left: increase right motor factors OR decrease left motor factors
+    # 5. Test again and fine-tune
+    
+    # Example adjustments:
+    # Robot drifts right when going forward:
+    #   motor_cal_fl: 1.05  # Speed up left motors
+    #   motor_cal_rl: 1.05
+    #   motor_cal_fr: 0.95  # Slow down right motors  
+    #   motor_cal_rr: 0.95
+    
+    # ===== CONTROL PARAMETERS =====
+    control_frequency: 50.0  # Hz - how often to update motor commands
+    max_velocity: 1.5        # m/s - maximum linear velocity
+    
+    # Velocity limits for safety
     max_linear_velocity: 1.5   # m/s
     max_angular_velocity: 3.0  # rad/s
     
-    # Sensor publishing rates
+    # Publishing rates
     imu_publish_rate: 50.0     # Hz
-    odom_publish_rate: 20.0    # Hz
+    odom_publish_rate: 20.0    # Hz  
     battery_publish_rate: 1.0  # Hz
 
-# Joystick controller configuration
-yahboom_joystick_controller:
+# Enhanced joystick controller with gear system
+enhanced_joystick_controller:
   ros__parameters:
-    # Control parameters
+    # Base velocities (will be multiplied by gear ratios)
     max_linear_vel: 1.0
     max_angular_vel: 2.0
     deadzone: 0.1
     
-    # Gear ratios
-    linear_gear_ratios: [0.33, 0.67, 1.0]
-    angular_gear_ratios: [0.25, 0.5, 0.75, 1.0]
+    # Gear ratios for fine control
+    # Lower ratios = more precise control
+    # Higher ratios = faster movement
+    linear_gear_ratios: [0.2, 0.5, 0.8, 1.0]    # 4 linear gears
+    angular_gear_ratios: [0.15, 0.3, 0.6, 1.0]  # 4 angular gears
     
     # Button debounce time (seconds)
     button_debounce_time: 0.5
 
-# Joy node configuration  
+# Joy node configuration for PS4 controller
 joy_node:
   ros__parameters:
     device_id: 0
     deadzone: 0.1
     autorepeat_rate: 20.0
     coalesce_interval: 0.05
+
+# Velocity smoother for Nav2 compatibility
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    
+    # Velocity limits [vx, vy, vtheta]
+    max_velocity: [1.5, 1.5, 3.0]
+    min_velocity: [-1.5, -1.5, -3.0]
+    
+    # Acceleration limits [ax, ay, atheta]
+    max_accel: [2.0, 2.0, 2.0]
+    max_decel: [-2.0, -2.0, -2.0]
+    
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

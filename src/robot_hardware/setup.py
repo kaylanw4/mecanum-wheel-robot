@@ -29,6 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'yahboom_driver = robot_hardware.yahboom_driver:main',
+            'enhanced_yahboom_driver = robot_hardware.enhanced_yahboom_driver:main',
+            'motor_calibration_tool = robot_hardware.motor_calibration_tool:main',
         ],
     },
 )
