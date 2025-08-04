@@ -241,7 +241,7 @@ class EnhancedYahboomDriver(Node):
         
         # Robot physical parameters
         self.declare_parameter('wheel_radius', 0.0395)  
-        self.declare_parameter('wheelbase_length', 0.22)  
+        self.declare_parameter('wheelbase_length', 0.22)
         self.declare_parameter('wheelbase_width', 0.22)   
         self.declare_parameter('encoder_resolution', 2464)
         
@@ -306,7 +306,7 @@ class EnhancedYahboomDriver(Node):
         
         # Initialize PID controllers for each wheel
         self.pid_controllers = [
-            PIDController(pid_kp, pid_ki, pid_kd, (-100, 100)) for _ in range(4)
+            PIDController(pid_kp, pid_ki, pid_kd, (-200, 200)) for _ in range(4)
         ]
         
         # Control state - NO MORE CALIBRATION APPLIED TO TARGETS
@@ -444,12 +444,12 @@ class EnhancedYahboomDriver(Node):
             # HYBRID CONTROL with PROPER calibration
             vx, vy, vz = self.last_cmd_vel
             
-            if abs(vz) > 0.1:  # Rotation command - use reliable set_car_motion
+            if abs(vz) > 8.0:  # Only very large rotations use direct control
                 self.hardware.set_car_motion(vx, vy, vz)
                 # Reset PID controllers to prevent conflicts
                 for pid in self.pid_controllers:
                     pid.reset()
-            elif abs(vx) > 0.05 or abs(vy) > 0.05:  # Linear motion - use PID for precision
+            elif abs(vx) > 0.05 or abs(vy) > 0.05 or abs(vz) > 0.05:  # All small movements - use PID for precision
                 if self.use_hybrid_control:
                     # PID control with PROPER calibration applied to OUTPUT
                     motor_commands = []

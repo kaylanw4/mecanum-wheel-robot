@@ -22,7 +22,7 @@ class YahboomJoystickController(Node):
         
         # Declare parameters
         self.declare_parameter('max_linear_vel', 1.77)
-        self.declare_parameter('max_angular_vel', 1.77)
+        self.declare_parameter('max_angular_vel', 8.0)
         self.declare_parameter('deadzone', 0.1)
         
         # Get parameters

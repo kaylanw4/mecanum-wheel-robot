@@ -127,7 +127,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'max_linear_vel': 1.0,
-            'max_angular_vel': 2.0,
+            'max_angular_vel': 6.0,
             'deadzone': 0.1,
             'use_sim_time': False
         }],
