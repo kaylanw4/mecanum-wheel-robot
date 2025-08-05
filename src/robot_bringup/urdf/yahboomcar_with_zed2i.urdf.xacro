@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="yahboomcar_with_zed2i" xmlns:xacro="http://wiki.ros.org/xacro" xmlns:gz="http://gazebosim.org/schema">
+    
+    <!-- Camera name parameter -->
+    <xacro:arg name="camera_name" default="zed2i"/>
+    <xacro:property name="camera_name" value="$(arg camera_name)"/>
+    
+    <!-- Include the base robot URDF -->
+    <xacro:include filename="$(find robot_bringup)/urdf/yahboomcar_chassis.urdf.xacro"/>
+    
+    <!-- Include ZED camera macro -->
+    <xacro:include filename="$(find zed_wrapper)/urdf/zed_macro.urdf.xacro"/>
+    
+    <!-- Add ZED2i Camera using official macro - integrated into robot URDF -->
+    <xacro:zed_camera name="${camera_name}" model="zed2i" enable_gnss="false">
+        <origin xyz="0 0 0" rpy="0 0 0"/>  <!-- GNSS origin (not used) -->
+    </xacro:zed_camera>
+    
+    <!-- Connect ZED camera to robot base - base_link is parent -->
+    <joint name="${camera_name}_mount_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="${camera_name}_camera_link"/>
+        <origin xyz="0.08 0.0 0.065" rpy="0 0 0"/>  <!-- 8cm forward, 6.5cm up -->
+    </joint>
+    
+</robot>

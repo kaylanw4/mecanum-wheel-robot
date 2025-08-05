@@ -1,0 +1,10 @@
+# ZED2i Depth to LaserScan Configuration
+# File: src/robot_bringup/config/zed_depth_to_scan.yaml
+
+/**:
+  ros__parameters:
+    scan_time: 0.033          # 30 Hz scan rate
+    range_min: 0.3            # Minimum range in meters
+    range_max: 10.0           # Maximum range in meters  
+    scan_height: 10           # Row from depth image to use (middle of image)
+    output_frame: "zed2i_left_camera_frame"  # Frame for the laser scan

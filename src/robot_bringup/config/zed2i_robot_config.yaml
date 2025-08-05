@@ -1,0 +1,28 @@
+# ZED2i Configuration for Robot Integration
+# File: src/robot_bringup/config/zed2i_robot_config.yaml
+
+/**:
+  ros__parameters:
+    # General parameters
+    general:
+      camera_model: 'zed2i'
+      camera_name: 'zed2i'
+    
+    # Position tracking parameters - ZED provides odometry data without TF conflicts
+    # Robot's TF tree: base_footprint -> base_link -> zed2i_camera_link
+    pos_tracking:
+      pos_tracking_enabled: true
+      imu_fusion: true
+      publish_tf: false          # Disable TF to avoid conflicts - use odometry messages instead
+      publish_map_tf: false      # Don't publish map->odom (let SLAM handle it later)  
+      map_frame: 'map'
+      odometry_frame: 'odom'     
+      area_memory: false         # Disable for now
+      depth_min_range: 0.0
+      set_gravity_as_origin: true
+      set_floor_as_origin: false
+      
+    # Depth parameters
+    depth:
+      min_depth: 0.3
+      max_depth: 10.0
