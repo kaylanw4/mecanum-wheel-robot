@@ -3,7 +3,7 @@
 
 /**:
   ros__parameters:
-    scan_time: 0.033          # 30 Hz scan rate
+    scan_time: 0.1            # 10 Hz scan rate (reduced from 30 Hz for SLAM compatibility)
     range_min: 0.3            # Minimum range in meters
     range_max: 10.0           # Maximum range in meters  
     scan_height: 10           # Row from depth image to use (middle of image)

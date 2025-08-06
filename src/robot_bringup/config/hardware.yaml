@@ -13,13 +13,33 @@ enhanced_yahboom_driver:
     odom_frame_id: "odom"
     
     # Publishing options
-    publish_odom_tf: false  # Set to true if not using robot_localization
+    publish_odom_tf: true  # Set to true if not using robot_localization
     
     # Robot physical parameters
     wheel_radius: 0.0395  # 40mm wheels
     wheelbase_width: 0.22  # Distance between left and right wheels
     wheelbase_length: 0.22  # Distance between front and rear wheels
     encoder_resolution: 2464  # 520 CPR * 4 (with quadrature)
+    
+    # ===== ODOMETRY CALIBRATION =====
+    # These factors calibrate odometry to real-world measurements
+    # Values > 1.0 = odometry reads too small (increase scale)
+    # Values < 1.0 = odometry reads too large (decrease scale)
+    # Start with all 1.0 and adjust based on real-world testing
+    
+    odom_linear_scale_x: 1.0   # Forward/backward distance calibration
+    odom_linear_scale_y: 1.0   # Left/right strafe distance calibration  
+    odom_angular_scale: 1.0    # Rotation angle calibration
+    
+    # Calibration procedure:
+    # 1. Linear X (Forward): Move robot forward exactly 5.0m, measure odometry
+    #    If odometry shows 4.5m → set odom_linear_scale_x: 1.111 (5.0/4.5)
+    #    If odometry shows 5.5m → set odom_linear_scale_x: 0.909 (5.0/5.5)
+    # 2. Linear Y (Strafe): Move robot left exactly 2.0m, measure odometry
+    #    Adjust odom_linear_scale_y similarly
+    # 3. Angular: Rotate robot exactly 360° (2π rad), measure odometry angle
+    #    If odometry shows 300° → set odom_angular_scale: 1.2 (360/300)
+    #    If odometry shows 400° → set odom_angular_scale: 0.9 (360/400)
     
     # ===== PID CONTROL PARAMETERS =====
     # These are the key parameters for fine-tuned control

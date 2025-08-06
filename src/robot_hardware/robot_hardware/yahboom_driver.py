@@ -111,12 +111,16 @@ class MecanumKinematics:
         Convert body velocities to individual wheel velocities (rad/s)
         Uses proper mecanum wheel inverse kinematics
         """
-        # Mecanum wheel inverse kinematics
-        # FL, FR, RL, RR = Front Left, Front Right, Rear Left, Rear Right
-        fl_vel = (vx - vy - vz * (self.lx + self.ly)) / self.wheel_radius
-        fr_vel = (vx + vy + vz * (self.lx + self.ly)) / self.wheel_radius  
-        rl_vel = (vx + vy - vz * (self.lx + self.ly)) / self.wheel_radius
-        rr_vel = (vx - vy + vz * (self.lx + self.ly)) / self.wheel_radius
+        # Mecanum wheel inverse kinematics - Fixed strafe direction, corrected rotation for physical layout
+        # FL, FR, RL, RR = Logical positions (not matching physical due to rotated layout)
+        # Physical layout: Logical FL=Physical RL, FR=Physical RR, RL=Physical FL, RR=Physical FR
+        # For proper rotation: Physical Left(FL+RL) forward, Physical Right(FR+RR) backward
+        # So: Logical RL+RR get +vz, Logical FL+FR get -vz
+        rotation_factor = (self.lx + self.ly) * 2.0  # Increase rotation torque
+        fl_vel = (vx - (-vy) - vz * rotation_factor) / self.wheel_radius  # Logical FL (Phys RL): -vz
+        fr_vel = (vx + (-vy) - vz * rotation_factor) / self.wheel_radius  # Logical FR (Phys RR): -vz
+        rl_vel = (vx + (-vy) + vz * rotation_factor) / self.wheel_radius  # Logical RL (Phys FL): +vz  
+        rr_vel = (vx - (-vy) + vz * rotation_factor) / self.wheel_radius  # Logical RR (Phys FR): +vz
         
         return [fl_vel, fr_vel, rl_vel, rr_vel]
         
@@ -133,10 +137,11 @@ class MecanumKinematics:
         rl_linear = rl_vel * self.wheel_radius
         rr_linear = rr_vel * self.wheel_radius
         
-        # Mecanum wheel forward kinematics
+        # Mecanum wheel forward kinematics - Fixed strafe direction, corrected rotation for physical layout
         vx = (fl_linear + fr_linear + rl_linear + rr_linear) / 4.0
-        vy = (-fl_linear + fr_linear + rl_linear - rr_linear) / 4.0
-        vz = (-fl_linear + fr_linear - rl_linear + rr_linear) / (4.0 * (self.lx + self.ly))
+        vy = -(-fl_linear + fr_linear + rl_linear - rr_linear) / 4.0  # Invert to match inverse kinematics fix
+        rotation_factor = (self.lx + self.ly) * 2.0  # Match inverse kinematics rotation scaling
+        vz = (-fl_linear - fr_linear + rl_linear + rr_linear) / (4.0 * rotation_factor)  # RL+RR:+ FL+FR:-
         
         return vx, vy, vz
         
@@ -245,6 +250,11 @@ class EnhancedYahboomDriver(Node):
         self.declare_parameter('wheelbase_width', 0.22)   
         self.declare_parameter('encoder_resolution', 2464)
         
+        # Odometry calibration parameters
+        self.declare_parameter('odom_linear_scale_x', 1.0)
+        self.declare_parameter('odom_linear_scale_y', 1.0)
+        self.declare_parameter('odom_angular_scale', 1.0)
+        
         # PID parameters for each wheel
         self.declare_parameter('pid_kp', 2.0)  
         self.declare_parameter('pid_ki', 0.0)  
@@ -274,6 +284,11 @@ class EnhancedYahboomDriver(Node):
         wheelbase_length = self.get_parameter('wheelbase_length').value
         wheelbase_width = self.get_parameter('wheelbase_width').value
         encoder_resolution = self.get_parameter('encoder_resolution').value
+        
+        # Odometry calibration parameters
+        self.odom_linear_scale_x = self.get_parameter('odom_linear_scale_x').value
+        self.odom_linear_scale_y = self.get_parameter('odom_linear_scale_y').value
+        self.odom_angular_scale = self.get_parameter('odom_angular_scale').value
         
         # PID parameters
         pid_kp = self.get_parameter('pid_kp').value
@@ -407,7 +422,7 @@ class EnhancedYahboomDriver(Node):
         # Apply velocity limits
         vx = max(-self.max_velocity, min(self.max_velocity, vx))
         vy = max(-self.max_velocity, min(self.max_velocity, vy))
-        vz = max(-3.0, min(3.0, vz))  # Angular velocity limit
+        vz = max(-8.0, min(8.0, vz))  # Angular velocity limit (increased for better rotation)
         
         # Store command for control loop
         self.last_cmd_vel = [vx, vy, vz]
@@ -574,28 +589,37 @@ class EnhancedYahboomDriver(Node):
             # Update odometry
             x, y, theta, vx, vy, vtheta = self.kinematics.update_odometry(encoder_counts)
             
+            # Apply odometry calibration and coordinate frame correction
+            # Invert all directions to match robot coordinate frame to RViz visualization
+            x_calibrated = -x * self.odom_linear_scale_x
+            y_calibrated = -y * self.odom_linear_scale_y
+            theta_calibrated = -theta * self.odom_angular_scale
+            vx_calibrated = -vx * self.odom_linear_scale_x
+            vy_calibrated = -vy * self.odom_linear_scale_y
+            vtheta_calibrated = -vtheta * self.odom_angular_scale
+            
             # Create odometry message
             odom_msg = Odometry()
             odom_msg.header.stamp = timestamp.to_msg()
             odom_msg.header.frame_id = self.odom_frame_id
             odom_msg.child_frame_id = self.base_frame_id
             
-            # Set position
-            odom_msg.pose.pose.position.x = x
-            odom_msg.pose.pose.position.y = y
+            # Set position (using calibrated values)
+            odom_msg.pose.pose.position.x = x_calibrated
+            odom_msg.pose.pose.position.y = y_calibrated
             odom_msg.pose.pose.position.z = 0.0
             
             # Convert angle to quaternion using scipy (NumPy 2.0 compatible)
-            quat = euler_to_quaternion(0, 0, theta)
+            quat = euler_to_quaternion(0, 0, theta_calibrated)
             odom_msg.pose.pose.orientation.x = quat[0]
             odom_msg.pose.pose.orientation.y = quat[1]
             odom_msg.pose.pose.orientation.z = quat[2]
             odom_msg.pose.pose.orientation.w = quat[3]
             
-            # Set velocity
-            odom_msg.twist.twist.linear.x = vx
-            odom_msg.twist.twist.linear.y = vy
-            odom_msg.twist.twist.angular.z = vtheta
+            # Set velocity (using calibrated values)
+            odom_msg.twist.twist.linear.x = vx_calibrated
+            odom_msg.twist.twist.linear.y = vy_calibrated
+            odom_msg.twist.twist.angular.z = vtheta_calibrated
             
             # Set covariance
             odom_msg.pose.covariance[0] = 0.001   # x
@@ -614,8 +638,8 @@ class EnhancedYahboomDriver(Node):
                 t.header.stamp = timestamp.to_msg()
                 t.header.frame_id = self.odom_frame_id
                 t.child_frame_id = self.base_frame_id
-                t.transform.translation.x = x
-                t.transform.translation.y = y
+                t.transform.translation.x = x_calibrated
+                t.transform.translation.y = y_calibrated
                 t.transform.translation.z = 0.0
                 t.transform.rotation.x = quat[0]
                 t.transform.rotation.y = quat[1]

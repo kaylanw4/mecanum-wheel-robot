@@ -130,7 +130,7 @@ def generate_launch_description():
             hardware_config,
             {
                 'serial_port': serial_port,
-                'publish_odom_tf': False,  # ZED handles visual odometry
+                'publish_odom_tf': True,  # Robot wheel odometry needed for SLAM
                 'use_sim_time': False
             }
         ]
