@@ -42,6 +42,15 @@ ros2 launch robot_bringup robot_bringup.launch.py use_rviz:=true
 
 # Joystick control standalone
 ros2 launch robot_bringup joystick.launch.py
+
+# Robot with ZED2i camera integration
+ros2 launch robot_bringup robot_with_zed2i.launch.py
+
+# SLAM mapping mode
+ros2 launch robot_bringup robot_slam.launch.py
+
+# Save SLAM map
+bash src/robot_bringup/scripts/save_slam_map.sh
 ```
 
 ### Debugging and Monitoring
@@ -58,6 +67,16 @@ ros2 topic echo /joint_states
 # Test joystick input
 ros2 topic echo /joy
 
+# Monitor ZED2i camera topics
+ros2 topic echo /zed2i/zed_node/rgb/image_rect_color
+ros2 topic echo /zed2i/zed_node/depth/depth_registered
+ros2 topic echo /zed2i/zed_node/point_cloud/cloud_registered
+
+# Monitor SLAM topics
+ros2 topic echo /scan
+ros2 topic echo /map
+ros2 topic echo /pose
+
 # Check system status
 ros2 doctor
 ros2 node list
@@ -71,6 +90,8 @@ ros2 node list
 - **robot_teleop**: Enhanced joystick controller with gear modes and RGB/buzzer control  
 - **robot_description**: Robot URDF descriptions and meshes
 - **mecanum_robot_sim**: Simulation components
+- **zed-ros2-wrapper**: ZED2i camera driver and integration
+- **zed-ros2-examples**: ZED camera examples and tutorials
 
 ### Hardware Interface
 The system uses a USB serial connection to communicate with the Yahboom Robot Expansion Board V3.0 (STM32F103RCT6). The `yahboom_driver.py` integrates the official Yahboom `Rosmaster_Lib` library to:
@@ -80,12 +101,23 @@ The system uses a USB serial connection to communicate with the Yahboom Robot Ex
 - Control RGB lights and buzzer
 - Publish odometry and joint states
 
+### ZED2i Camera Integration
+The ZED2i stereo camera provides:
+- High-resolution RGB and depth images
+- 3D point cloud data
+- Visual odometry and SLAM capabilities
+- Depth-to-laser scan conversion for navigation
+- Real-time obstacle detection
+
 ### Control Flow
 1. **Joy node** reads PS4 controller input → `/joy` topic
 2. **Yahboom joystick controller** processes joy input with gear modes → `/cmd_vel` topic  
 3. **Yahboom hardware driver** receives cmd_vel → sends to robot via USB serial
 4. **Robot state publisher** manages transforms from URDF
 5. **Joint state publisher** handles wheel joint states for visualization
+6. **ZED2i node** provides camera data → depth, RGB, point cloud topics
+7. **Depthimage to Laserscan** converts depth → `/scan` topic for navigation
+8. **SLAM Toolbox** processes scan data → map generation and localization
 
 ### Key Topics
 - `/cmd_vel` (geometry_msgs/Twist): Velocity commands
@@ -95,12 +127,24 @@ The system uses a USB serial connection to communicate with the Yahboom Robot Ex
 - `/battery_voltage` (std_msgs/Float32): Battery status
 - `/rgb_light` (std_msgs/Int32): RGB light control
 - `/buzzer` (std_msgs/Bool): Buzzer control
+- `/zed2i/zed_node/rgb/image_rect_color` (sensor_msgs/Image): RGB camera feed
+- `/zed2i/zed_node/depth/depth_registered` (sensor_msgs/Image): Depth data
+- `/zed2i/zed_node/point_cloud/cloud_registered` (sensor_msgs/PointCloud2): 3D point cloud
+- `/scan` (sensor_msgs/LaserScan): 2D laser scan from depth conversion
+- `/map` (nav_msgs/OccupancyGrid): SLAM-generated occupancy grid map
+- `/pose` (geometry_msgs/PoseWithCovarianceStamped): Robot pose estimation
 
 ### Configuration Files
 - Hardware parameters: `src/robot_bringup/config/hardware.yaml`
 - Joystick mappings: `src/robot_bringup/config/joystick.yaml` 
 - Robot URDF: `src/robot_bringup/urdf/yahboomcar_chassis.urdf.xacro`
+- Robot with ZED2i URDF: `src/robot_bringup/urdf/yahboomcar_with_zed2i.urdf.xacro`
 - RViz config: `src/robot_bringup/config/robot_view.rviz`
+- ZED2i RViz config: `src/robot_bringup/config/robot_with_zed2i.rviz`
+- SLAM RViz config: `src/robot_bringup/config/slam_view.rviz`
+- ZED2i camera config: `src/robot_bringup/config/zed2i_robot_config.yaml`
+- SLAM parameters: `src/robot_bringup/config/slam_params.yaml`
+- Depth to scan config: `src/robot_bringup/config/zed_depth_to_scan.yaml`
 
 ## Important Development Notes
 
@@ -108,6 +152,8 @@ The system uses a USB serial connection to communicate with the Yahboom Robot Ex
 - Requires Yahboom `Rosmaster_Lib` Python library for hardware communication
 - USB serial connection on `/dev/ttyUSB0` (configurable via launch parameter)
 - PS4 controller paired via Bluetooth for joystick control
+- ZED2i camera connected via USB 3.0
+- ZED SDK installed for camera functionality
 
 ### Joystick Controls (PS4 Controller)
 - **L1**: Deadman switch (hold to enable movement)
@@ -131,3 +177,21 @@ Python packages (`robot_hardware`, `robot_teleop`) use standard ROS2 Python stru
 - `package.xml` for ROS2 dependencies
 - Source code in package-named subdirectories
 - Test files in `test/` directories
+
+### SLAM and Navigation
+The system supports:
+- Real-time SLAM mapping using SLAM Toolbox
+- Depth-based obstacle detection and avoidance
+- Map saving and loading capabilities
+- Integration with nav2 navigation stack
+- Visual odometry from ZED2i camera
+
+### Motor Calibration
+Use the motor calibration tool for optimal performance:
+```bash
+# Run motor calibration (interactive)
+python3 src/robot_hardware/robot_hardware/motor_calibration_tool.py
+
+# Test motor response
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.2}}'
+```
