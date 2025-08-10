@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Yahboom Hardware Driver with PROPER Motor Calibration
-Fixes calibration to affect actual speed, not just acceleration
+Simplified Yahboom Hardware Driver with Direct Velocity Control
+Removes PID complexity and uses calibrated direct hardware control
 """
 
 import sys
@@ -25,61 +25,6 @@ from scipy.spatial.transform import Rotation as R
 from Rosmaster_Lib import Rosmaster
 
 
-class PIDController:
-    """
-    Industry-standard PID controller for velocity control
-    """
-    def __init__(self, kp=1.0, ki=0.1, kd=0.05, output_limits=(-100, 100)):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.output_limits = output_limits
-        
-        self.last_error = 0.0
-        self.integral = 0.0
-        self.last_time = time.time()
-        
-    def update(self, setpoint, measured_value):
-        """Update PID controller with new measurements"""
-        current_time = time.time()
-        dt = current_time - self.last_time
-        
-        if dt <= 0.0:
-            return 0.0
-            
-        error = setpoint - measured_value
-        
-        # Proportional term
-        proportional = self.kp * error
-        
-        # Integral term with windup protection
-        self.integral += error * dt
-        integral_term = self.ki * self.integral
-        
-        # Derivative term
-        derivative = self.kd * (error - self.last_error) / dt
-        
-        # Calculate output
-        output = proportional + integral_term + derivative
-        
-        # Apply output limits
-        if self.output_limits:
-            output = max(min(output, self.output_limits[1]), self.output_limits[0])
-            
-            # Anti-windup: reduce integral if output is saturated
-            if output >= self.output_limits[1] or output <= self.output_limits[0]:
-                self.integral -= error * dt
-        
-        self.last_error = error
-        self.last_time = current_time
-        
-        return output
-        
-    def reset(self):
-        """Reset PID controller state"""
-        self.last_error = 0.0
-        self.integral = 0.0
-        self.last_time = time.time()
 
 
 class MecanumKinematics:
@@ -214,27 +159,20 @@ def euler_to_quaternion(roll, pitch, yaw):
     return quat  # Returns [x, y, z, w]
 
 
-class EnhancedYahboomDriver(Node):
+class SimplifiedYahboomDriver(Node):
     """
-    Enhanced Yahboom Hardware Driver with PROPER Motor Calibration
+    Simplified Yahboom Hardware Driver with Direct Velocity Control
+    Uses calibrated velocity scaling for predictable SLAM performance
     """
     
-    # Centralized motor/encoder mapping arrays for easy configuration
+    # Encoder mapping for odometry calculation
     # Hardware returns encoders as [m1, m2, m3, m4], we need [FL, FR, RL, RR]
     ENCODER_TO_WHEEL_MAP = [1, 0, 3, 2]  # [m2→FL, m1→FR, m4→RL, m3→RR]
     
-    # When sending motor commands to hardware, map wheel indices to motor indices
-    # hardware.set_motor(motor1, motor0, motor3, motor2) expects [FR, FL, RR, RL]
-    WHEEL_TO_MOTOR_MAP = [1, 0, 3, 2]  # [FL→motor1, FR→motor0, RL→motor3, RR→motor2]
-    
-    # Sign corrections for PID feedback to match target signs [FL, FR, RL, RR]
-    # Adjust these +1/-1 values to fix PID target vs measured sign mismatches
-    ENCODER_SIGN_CORRECTION = [-1, -1, -1, -1]  # Flip encoder signs to match targets
-    
     def __init__(self):
-        super().__init__('enhanced_yahboom_driver')
+        super().__init__('simplified_yahboom_driver')
         
-        self.get_logger().info("🚀 Starting Enhanced Yahboom Driver with PROPER Calibration...")
+        self.get_logger().info("🚀 Starting Simplified Yahboom Driver with Direct Velocity Control...")
         
         # Declare parameters
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
@@ -255,21 +193,23 @@ class EnhancedYahboomDriver(Node):
         self.declare_parameter('odom_linear_scale_y', 1.0)
         self.declare_parameter('odom_angular_scale', 1.0)
         
-        # PID parameters for each wheel
-        self.declare_parameter('pid_kp', 2.0)  
-        self.declare_parameter('pid_ki', 0.0)  
-        self.declare_parameter('pid_kd', 0.0) 
+        # Base velocity scaling for speed control
+        self.declare_parameter('base_velocity_scale', 0.3)  # Overall speed scaling (0.1-1.0)
         
-        # PROPER Motor calibration factors - now applied to motor commands, not targets
-        self.declare_parameter('motor_cal_fl', 1.0)  # Front left
-        self.declare_parameter('motor_cal_fr', 0.90)  # Front right
-        self.declare_parameter('motor_cal_rl', 1.10)  # Rear left
-        self.declare_parameter('motor_cal_rr', 1.0)  # Rear right
+        # Fine-tuning calibration parameters
+        self.declare_parameter('velocity_scale_x', 1.0)   # Linear X velocity scaling
+        self.declare_parameter('velocity_scale_y', 1.0)   # Linear Y velocity scaling  
+        self.declare_parameter('velocity_scale_z', 1.0)   # Angular Z velocity scaling
+        
+        # Individual motor calibration factors [FL, FR, RL, RR]
+        self.declare_parameter('motor_cal_fl', 1.0)   # Front Left motor calibration
+        self.declare_parameter('motor_cal_fr', 1.0)   # Front Right motor calibration  
+        self.declare_parameter('motor_cal_rl', 1.0)   # Rear Left motor calibration
+        self.declare_parameter('motor_cal_rr', 1.0)   # Rear Right motor calibration
         
         # Control parameters
-        self.declare_parameter('control_frequency', 50.0)  # Hz
-        self.declare_parameter('max_velocity', 2.75)  # m/s
-        self.declare_parameter('use_hybrid_control', True)  
+        self.declare_parameter('max_linear_velocity', 1.5)  # m/s
+        self.declare_parameter('max_angular_velocity', 3.0)  # rad/s  
         
         # Get parameters
         self.serial_port = self.get_parameter('serial_port').value
@@ -290,27 +230,29 @@ class EnhancedYahboomDriver(Node):
         self.odom_linear_scale_y = self.get_parameter('odom_linear_scale_y').value
         self.odom_angular_scale = self.get_parameter('odom_angular_scale').value
         
-        # PID parameters
-        pid_kp = self.get_parameter('pid_kp').value
-        pid_ki = self.get_parameter('pid_ki').value
-        pid_kd = self.get_parameter('pid_kd').value
+        # Base velocity scaling
+        self.base_velocity_scale = self.get_parameter('base_velocity_scale').value
         
-        # Motor calibration - NOW PROPERLY APPLIED
-        self.motor_cal = [
-            self.get_parameter('motor_cal_fl').value,
-            self.get_parameter('motor_cal_fr').value,
-            self.get_parameter('motor_cal_rl').value,
-            self.get_parameter('motor_cal_rr').value
-        ]
+        # Fine-tuning calibration parameters
+        self.velocity_scale_x = self.get_parameter('velocity_scale_x').value
+        self.velocity_scale_y = self.get_parameter('velocity_scale_y').value
+        self.velocity_scale_z = self.get_parameter('velocity_scale_z').value
+        
+        # Individual motor calibration factors [FL, FR, RL, RR]
+        motor_cal_fl = self.get_parameter('motor_cal_fl').value
+        motor_cal_fr = self.get_parameter('motor_cal_fr').value
+        motor_cal_rl = self.get_parameter('motor_cal_rl').value
+        motor_cal_rr = self.get_parameter('motor_cal_rr').value
+        self.motor_calibration_factors = [motor_cal_fl, motor_cal_fr, motor_cal_rl, motor_cal_rr]
         
         # Control parameters
-        self.control_freq = self.get_parameter('control_frequency').value
-        self.max_velocity = self.get_parameter('max_velocity').value
-        self.use_hybrid_control = self.get_parameter('use_hybrid_control').value
+        self.max_linear_velocity = self.get_parameter('max_linear_velocity').value
+        self.max_angular_velocity = self.get_parameter('max_angular_velocity').value
         
-        self.get_logger().info(f"🔧 PID gains: Kp={pid_kp}, Ki={pid_ki}, Kd={pid_kd}")
-        self.get_logger().info(f"⚙️ Motor calibration: {self.motor_cal}")
-        self.get_logger().info(f"🔄 Hybrid control mode: {self.use_hybrid_control}")
+        self.get_logger().info(f"🚀 Base velocity scale: {self.base_velocity_scale:.3f}")
+        self.get_logger().info(f"📏 Fine-tune scaling: X={self.velocity_scale_x:.3f}, Y={self.velocity_scale_y:.3f}, Z={self.velocity_scale_z:.3f}")
+        self.get_logger().info(f"🔧 Motor calibration: FL={motor_cal_fl:.3f}, FR={motor_cal_fr:.3f}, RL={motor_cal_rl:.3f}, RR={motor_cal_rr:.3f}")
+        self.get_logger().info(f"🚀 Max velocities: Linear={self.max_linear_velocity:.1f} m/s, Angular={self.max_angular_velocity:.1f} rad/s")
         
         # Initialize kinematics
         self.lx = wheelbase_length / 2.0  
@@ -319,18 +261,7 @@ class EnhancedYahboomDriver(Node):
             self.wheel_radius, self.lx, self.ly, encoder_resolution
         )
         
-        # Initialize PID controllers for each wheel
-        self.pid_controllers = [
-            PIDController(pid_kp, pid_ki, pid_kd, (-200, 200)) for _ in range(4)
-        ]
-        
-        # Control state - NO MORE CALIBRATION APPLIED TO TARGETS
-        self.target_wheel_vels = [0.0, 0.0, 0.0, 0.0]  # rad/s (raw targets)
-        self.measured_wheel_vels = [0.0, 0.0, 0.0, 0.0]  # rad/s
-        self.prev_encoder_counts = [0, 0, 0, 0]
-        self.prev_encoder_time = time.time()
-        
-        # Store last command for hybrid control
+        # Store last command for direct control
         self.last_cmd_vel = [0.0, 0.0, 0.0]  # vx, vy, vz
         
         # Initialize hardware interface
@@ -360,22 +291,16 @@ class EnhancedYahboomDriver(Node):
         self.battery_pub = self.create_publisher(Float32, 'battery_voltage', 10)
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
         
-        # Wheel velocity diagnostics publishers
-        self.wheel_velocities_pub = self.create_publisher(
-            Float32MultiArray, 'wheel_velocities/measured', 10)
-        self.wheel_targets_pub = self.create_publisher(
-            Float32MultiArray, 'wheel_velocities/targets', 10)
-        self.wheel_errors_pub = self.create_publisher(
-            Float32MultiArray, 'wheel_velocities/errors', 10)
+        # Command velocity diagnostics publisher
+        self.cmd_vel_debug_pub = self.create_publisher(
+            Float32MultiArray, 'cmd_vel_debug', 10)
         
         # TF broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # Create timers
-        control_period = 1.0 / self.control_freq
-        self.create_timer(control_period, self.control_loop)  # Main control loop
+        self.create_timer(0.02, self.control_loop)  # Simple control loop at 50Hz
         self.create_timer(0.05, self.publish_sensor_data)    # Sensor publishing
-        self.create_timer(0.1, self.publish_wheel_diagnostics)  # Wheel diagnostics
         
         # Initialize hardware
         self.initialize_hardware()
@@ -385,16 +310,15 @@ class EnhancedYahboomDriver(Node):
         if self.hardware is None:
             return
             
-        self.get_logger().info("🔌 Initializing hardware with proper calibration...")
+        self.get_logger().info("🔌 Initializing hardware with direct velocity control...")
         
         try:
             # Start communication thread
             self.hardware.create_receive_threading()
             time.sleep(0.1)
             
-            # Configure PID for motion control
-            self.hardware.set_pid_param(1.5, 0.3, 0.05, forever=False)
-            time.sleep(0.1)
+            # Let hardware use its default control parameters
+            # No need to configure PID since we're using direct control
             
             # Test beep
             self.hardware.set_beep(50)
@@ -404,13 +328,13 @@ class EnhancedYahboomDriver(Node):
             version = self.hardware.get_version()
             self.get_logger().info(f"📋 Firmware version: {version}")
             
-            self.get_logger().info("✅ Enhanced hardware initialized successfully")
+            self.get_logger().info("✅ Simplified hardware initialized successfully")
             
         except Exception as e:
             self.get_logger().error(f"❌ Hardware initialization failed: {e}")
             
     def cmd_vel_callback(self, msg):
-        """Handle velocity commands - NO CALIBRATION APPLIED TO TARGETS"""
+        """Handle velocity commands with direct calibrated control"""
         if self.hardware is None:
             return
             
@@ -419,144 +343,141 @@ class EnhancedYahboomDriver(Node):
         vy = msg.linear.y
         vz = msg.angular.z
         
+        # IMMEDIATE DEBUG - log received cmd_vel
+        if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(vz) > 0.01:
+            self.get_logger().info(f"📥 RECEIVED CMD_VEL: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
+        
         # Apply velocity limits
-        vx = max(-self.max_velocity, min(self.max_velocity, vx))
-        vy = max(-self.max_velocity, min(self.max_velocity, vy))
-        vz = max(-8.0, min(8.0, vz))  # Angular velocity limit (increased for better rotation)
+        vx = max(-self.max_linear_velocity, min(self.max_linear_velocity, vx))
+        vy = max(-self.max_linear_velocity, min(self.max_linear_velocity, vy))
+        vz = max(-self.max_angular_velocity, min(self.max_angular_velocity, vz))
         
-        # Store command for control loop
-        self.last_cmd_vel = [vx, vy, vz]
+        # Apply base velocity scaling first (for speed control)
+        vx_scaled = vx * self.base_velocity_scale
+        vy_scaled = vy * self.base_velocity_scale  
+        vz_scaled = vz * self.base_velocity_scale
         
-        # Convert to wheel velocities - NO CALIBRATION APPLIED HERE
-        self.target_wheel_vels = self.kinematics.cmd_vel_to_wheel_velocities(vx, vy, vz)
+        # Then apply fine-tuning calibration
+        vx_calibrated = vx_scaled * self.velocity_scale_x
+        vy_calibrated = vy_scaled * self.velocity_scale_y
+        vz_calibrated = vz_scaled * self.velocity_scale_z
         
-        # DO NOT apply calibration to targets - that was the bug!
-        # Calibration will be applied to motor commands instead
+        # Store calibrated command
+        self.last_cmd_vel = [vx_calibrated, vy_calibrated, vz_calibrated]
+        
+        # Use direct motor control for precise velocity control
+        # set_car_motion has firmware deadband issues, but set_motor gives true proportional control
+        try:
+            # Convert cmd_vel to individual wheel speeds using mecanum kinematics
+            wheel_velocities = self.kinematics.cmd_vel_to_wheel_velocities(vx_calibrated, vy_calibrated, vz_calibrated)
+            
+            # Convert wheel velocities (rad/s) to PWM values (-100 to 100)
+            # Use a lower max_wheel_speed for more precise control
+            max_wheel_speed = 5.0  # rad/s - reduced for better precision
+            motor_speeds = []
+            for i, wheel_vel in enumerate(wheel_velocities):
+                # Scale to -100 to 100 range for set_motor
+                motor_speed = (wheel_vel / max_wheel_speed) * 100.0
+                # Apply individual motor calibration if available
+                if hasattr(self, 'motor_calibration_factors'):
+                    motor_speed *= self.motor_calibration_factors[i]
+                motor_speed = max(-100, min(100, int(motor_speed)))
+                motor_speeds.append(motor_speed)
+            
+            # Map logical wheels to physical motors: [FL, FR, RL, RR] -> [m1, m2, m3, m4]
+            # IMPORTANT: This mapping might need adjustment based on actual wiring
+            m1_speed = motor_speeds[1]  # m1 = FR (Front Right)
+            m2_speed = motor_speeds[0]  # m2 = FL (Front Left)  
+            m3_speed = motor_speeds[3]  # m3 = RR (Rear Right)
+            m4_speed = motor_speeds[2]  # m4 = RL (Rear Left)
+            
+            # Debug logging for motor mapping verification
+            if abs(vx_calibrated) > 0.01 or abs(vy_calibrated) > 0.01 or abs(vz_calibrated) > 0.01:
+                self.get_logger().info(f"📥 CMD_VEL: vx={vx_calibrated:.3f}, vy={vy_calibrated:.3f}, vz={vz_calibrated:.3f}")
+                self.get_logger().info(f"🔄 WHEEL VELS: FL={wheel_velocities[0]:.2f}, FR={wheel_velocities[1]:.2f}, RL={wheel_velocities[2]:.2f}, RR={wheel_velocities[3]:.2f}")
+                self.get_logger().info(f"🚀 MOTOR PWM: m1(FR)={m1_speed}, m2(FL)={m2_speed}, m3(RR)={m3_speed}, m4(RL)={m4_speed}")
+                
+            # Use direct motor control for precise proportional response
+            self.hardware.set_motor(m1_speed, m2_speed, m3_speed, m4_speed)
+            
+        except Exception as e:
+            self.get_logger().warn(f"⚠️ Failed to send motor command: {e}")
             
     def control_loop(self):
-        """Main control loop with PROPER calibration"""
+        """Simplified control loop for direct hardware control"""
         if self.hardware is None:
             return
             
+        # The control loop is now much simpler - just ensure the last command
+        # is still being sent in case of communication issues
         try:
-            # Get current encoder readings
-            m1, m2, m3, m4 = self.hardware.get_motor_encoder()
-            raw_encoders = [m1, m2, m3, m4]
-            current_encoders = [raw_encoders[i] for i in self.ENCODER_TO_WHEEL_MAP]  # Map to FL, FR, RL, RR
-            
-            # Calculate measured wheel velocities from encoders with PROPER SIGNS
-            current_time = time.time()
-            dt = current_time - self.prev_encoder_time
-            
-            if dt > 0 and self.prev_encoder_time > 0:
-                # Calculate velocities (rad/s) with consistent signs
-                for i in range(4):
-                    delta_counts = current_encoders[i] - self.prev_encoder_counts[i]
-                    delta_radians = (delta_counts * 2 * pi) / self.kinematics.encoder_resolution
-                    # Apply sign correction to match PID target signs
-                    self.measured_wheel_vels[i] = (delta_radians / dt) * self.ENCODER_SIGN_CORRECTION[i]
-            
-            # HYBRID CONTROL with PROPER calibration
             vx, vy, vz = self.last_cmd_vel
             
-            if abs(vz) > 8.0:  # Only very large rotations use direct control
-                self.hardware.set_car_motion(vx, vy, vz)
-                # Reset PID controllers to prevent conflicts
-                for pid in self.pid_controllers:
-                    pid.reset()
-            elif abs(vx) > 0.05 or abs(vy) > 0.05 or abs(vz) > 0.05:  # All small movements - use PID for precision
-                if self.use_hybrid_control:
-                    # PID control with PROPER calibration applied to OUTPUT
-                    motor_commands = []
-                    for i in range(4):
-                        # PID control to match target velocity (no calibration on target)
-                        pid_output = self.pid_controllers[i].update(
-                            self.target_wheel_vels[i], 
-                            self.measured_wheel_vels[i]
-                        )
-                        
-                        # APPLY CALIBRATION TO MOTOR COMMAND OUTPUT - THIS IS THE FIX!
-                        calibrated_command = pid_output * self.motor_cal[i]
-                        motor_commands.append(int(calibrated_command))
-                        
-                    # Send calibrated motor commands to hardware
-                    # Map wheel commands [FL, FR, RL, RR] to hardware motor order
-                    hw_commands = [motor_commands[i] for i in self.WHEEL_TO_MOTOR_MAP]
-                    self.hardware.set_motor(
-                        hw_commands[0],  # Motor 0 
-                        hw_commands[1],  # Motor 1
-                        hw_commands[2],  # Motor 2
-                        hw_commands[3]   # Motor 3
-                    )
-                else:
-                    # Fallback to set_car_motion
-                    self.hardware.set_car_motion(vx, vy, vz)
+            # Only send command if there's actual movement requested
+            if abs(vx) > 0.001 or abs(vy) > 0.001 or abs(vz) > 0.001:
+                # Use same direct motor control as cmd_vel_callback
+                wheel_velocities = self.kinematics.cmd_vel_to_wheel_velocities(vx, vy, vz)
+                
+                max_wheel_speed = 5.0  # Match cmd_vel_callback
+                motor_speeds = []
+                for i, wheel_vel in enumerate(wheel_velocities):
+                    motor_speed = (wheel_vel / max_wheel_speed) * 100.0
+                    if hasattr(self, 'motor_calibration_factors'):
+                        motor_speed *= self.motor_calibration_factors[i]
+                    motor_speed = max(-100, min(100, int(motor_speed)))
+                    motor_speeds.append(motor_speed)
+                
+                # Map to physical motors
+                m1_speed = motor_speeds[1]  # FR
+                m2_speed = motor_speeds[0]  # FL
+                m3_speed = motor_speeds[3]  # RR
+                m4_speed = motor_speeds[2]  # RL
+                
+                self.hardware.set_motor(m1_speed, m2_speed, m3_speed, m4_speed)
             else:
-                # Stop the robot
-                self.hardware.set_car_motion(0, 0, 0)
-                # Reset PID controllers
-                for pid in self.pid_controllers:
-                    pid.reset()
-            
-            # Store for next iteration
-            self.prev_encoder_counts = current_encoders.copy()
-            self.prev_encoder_time = current_time
-            
+                # Ensure robot stops when no movement is requested
+                self.hardware.set_motor(0, 0, 0, 0)
+                
         except Exception as e:
             self.get_logger().warn(f"⚠️ Control loop error: {e}")
             
-    def publish_wheel_diagnostics(self):
-        """Publish wheel velocity diagnostics for monitoring"""
+    def publish_cmd_vel_debug(self):
+        """Publish command velocity debug information"""
         if self.hardware is None:
             return
             
         try:
-            # Measured wheel velocities
-            measured_msg = Float32MultiArray()
-            measured_msg.data = [float(v) for v in self.measured_wheel_vels]
-            self.wheel_velocities_pub.publish(measured_msg)
-            
-            # Target wheel velocities (raw, no calibration)
-            targets_msg = Float32MultiArray()
-            targets_msg.data = [float(v) for v in self.target_wheel_vels]
-            self.wheel_targets_pub.publish(targets_msg)
-            
-            # Velocity errors (target - measured)
-            errors_msg = Float32MultiArray()
-            errors = [self.target_wheel_vels[i] - self.measured_wheel_vels[i] for i in range(4)]
-            errors_msg.data = [float(e) for e in errors]
-            self.wheel_errors_pub.publish(errors_msg)
+            # Publish current command velocities for debugging
+            debug_msg = Float32MultiArray()
+            debug_msg.data = [float(v) for v in self.last_cmd_vel]
+            self.cmd_vel_debug_pub.publish(debug_msg)
             
             # Log diagnostics occasionally
-            if hasattr(self, '_last_diagnostic_log'):
-                if time.time() - self._last_diagnostic_log > 2.0:  # Every 2 seconds
-                    self._log_wheel_diagnostics()
-                    self._last_diagnostic_log = time.time()
+            if hasattr(self, '_last_debug_log'):
+                if time.time() - self._last_debug_log > 3.0:  # Every 3 seconds
+                    self._log_cmd_vel_debug()
+                    self._last_debug_log = time.time()
             else:
-                self._last_diagnostic_log = time.time()
+                self._last_debug_log = time.time()
                 
         except Exception as e:
-            self.get_logger().warn(f"⚠️ Wheel diagnostics failed: {e}")
+            self.get_logger().warn(f"⚠️ Command velocity debug failed: {e}")
             
-    def _log_wheel_diagnostics(self):
-        """Log wheel diagnostics for debugging"""
-        if any(abs(v) > 0.1 for v in self.target_wheel_vels):  # Only log when moving
-            self.get_logger().info("🔍 WHEEL DIAGNOSTICS (PROPER CALIBRATION):")
-            self.get_logger().info(f"  Targets: FL={self.target_wheel_vels[0]:.2f}, FR={self.target_wheel_vels[1]:.2f}, "
-                                 f"RL={self.target_wheel_vels[2]:.2f}, RR={self.target_wheel_vels[3]:.2f} rad/s")
-            self.get_logger().info(f"  Measured: FL={self.measured_wheel_vels[0]:.2f}, FR={self.measured_wheel_vels[1]:.2f}, "
-                                 f"RL={self.measured_wheel_vels[2]:.2f}, RR={self.measured_wheel_vels[3]:.2f} rad/s")
+    def _log_cmd_vel_debug(self):
+        """Log command velocity debug information"""
+        vx, vy, vz = self.last_cmd_vel
+        if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(vz) > 0.01:  # Only log when moving
+            # Calculate hardware values for logging
+            max_hardware_speed = 100.0
+            vx_hardware = (vx / self.max_linear_velocity) * max_hardware_speed
+            vy_hardware = (vy / self.max_linear_velocity) * max_hardware_speed  
+            vz_hardware = (vz / self.max_angular_velocity) * max_hardware_speed
             
-            # Calculate speed ranges and show calibration factors
-            if self.measured_wheel_vels and any(abs(v) > 0.1 for v in self.measured_wheel_vels):
-                speeds = [abs(v) for v in self.measured_wheel_vels if abs(v) > 0.1]
-                if speeds:
-                    min_speed = min(speeds)
-                    max_speed = max(speeds)
-                    speed_variation = ((max_speed - min_speed) / max_speed) * 100 if max_speed > 0 else 0
-                    self.get_logger().info(f"  Speed variation: {speed_variation:.1f}%")
-                    self.get_logger().info(f"  Calibration: FL={self.motor_cal[0]:.3f}, FR={self.motor_cal[1]:.3f}, "
-                                         f"RL={self.motor_cal[2]:.3f}, RR={self.motor_cal[3]:.3f}")
+            self.get_logger().info("🚿 PROPORTIONAL VELOCITY CONTROL DEBUG:")
+            self.get_logger().info(f"  Calibrated cmd_vel: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
+            self.get_logger().info(f"  Hardware values: vx={vx_hardware:.1f}, vy={vy_hardware:.1f}, vz={vz_hardware:.1f}")
+            self.get_logger().info(f"  Base scale: {self.base_velocity_scale:.3f}")
+            self.get_logger().info(f"  Fine-tune scales: X={self.velocity_scale_x:.3f}, Y={self.velocity_scale_y:.3f}, Z={self.velocity_scale_z:.3f}")
     
     def publish_sensor_data(self):
         """Publish sensor data and odometry"""
@@ -574,6 +495,9 @@ class EnhancedYahboomDriver(Node):
             self.publish_mag_data(current_time)
             self.publish_joint_states(current_time)
             self.publish_battery_data()
+            
+            # Publish debug information
+            self.publish_cmd_vel_debug()
             
         except Exception as e:
             self.get_logger().warn(f"⚠️ Sensor publishing failed: {e}")
@@ -715,7 +639,7 @@ class EnhancedYahboomDriver(Node):
                 wheel_encoders[2] * encoder_to_rad,  # rear_left
                 wheel_encoders[3] * encoder_to_rad   # rear_right
             ]
-            joint_msg.velocity = self.measured_wheel_vels.copy()
+            joint_msg.velocity = [0.0, 0.0, 0.0, 0.0]  # No velocity feedback in simplified control
             joint_msg.effort = [0.0, 0.0, 0.0, 0.0]
             
         except Exception:
@@ -752,7 +676,7 @@ class EnhancedYahboomDriver(Node):
         
     def destroy_node(self):
         """Clean shutdown"""
-        self.get_logger().info("🛑 Shutting down enhanced driver")
+        self.get_logger().info("🛑 Shutting down simplified velocity driver")
         if self.hardware is not None:
             try:
                 # Stop all motors
@@ -768,7 +692,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     try:
-        driver = EnhancedYahboomDriver()
+        driver = SimplifiedYahboomDriver()
         rclpy.spin(driver)
     except KeyboardInterrupt:
         pass

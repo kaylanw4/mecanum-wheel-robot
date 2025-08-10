@@ -41,30 +41,32 @@ enhanced_yahboom_driver:
     #    If odometry shows 300° → set odom_angular_scale: 1.2 (360/300)
     #    If odometry shows 400° → set odom_angular_scale: 0.9 (360/400)
     
-    # ===== PID CONTROL PARAMETERS =====
-    # These are the key parameters for fine-tuned control
-    # Start with these values and tune based on your robot's behavior
+    # ===== BASE VELOCITY SCALING =====
+    # Controls overall speed range from joystick input
+    # 0.1 = very slow, 0.3 = moderate, 0.5 = fast, 1.0 = maximum speed
+    # Start with 0.3 for safe testing, increase as needed
+    base_velocity_scale: 0.3  # Overall speed scaling factor
     
-    pid_kp: 2.0   # Proportional gain - how aggressively to correct errors
-    pid_ki: 0.0   # Integral gain - eliminates steady-state errors  
-    pid_kd: 0.0   # Derivative gain - reduces oscillations
+    # ===== FINE-TUNING CALIBRATION =====
+    # These factors calibrate commanded velocities to real-world movement
+    # Values > 1.0 = robot moves faster than commanded (decrease scale)
+    # Values < 1.0 = robot moves slower than commanded (increase scale)
+    # Start with all 1.0 and adjust based on real-world testing
     
-    # PID Tuning Guide:
-    # 1. Start with Kp=2.0, Ki=0.0, Kd=0.0
-    # 2. Increase Kp until system becomes unstable, then reduce by 50%
-    # 3. Add Ki slowly (0.1, 0.2, 0.5) to eliminate steady-state error
-    # 4. Add small Kd (0.05, 0.1) to reduce oscillations
+    velocity_scale_x: 1.0  # Forward/backward velocity scaling
+    velocity_scale_y: 1.0  # Left/right strafe velocity scaling
+    velocity_scale_z: 1.0  # Rotation velocity scaling
     
-    # ===== MOTOR CALIBRATION =====
-    # These factors compensate for physical differences between motors
-    # Values > 1.0 = make motor work harder
-    # Values < 1.0 = make motor work less hard
-    # Start with all 1.0 and adjust based on calibration results
+    # ===== INDIVIDUAL MOTOR CALIBRATION =====
+    # Calibration factors for individual motors to account for manufacturing differences
+    # Values > 1.0 = speed up this motor, Values < 1.0 = slow down this motor
+    # Start with all 1.0 and adjust based on testing
+    # If robot drifts right when going straight: increase left motor factors OR decrease right motor factors
     
-    motor_cal_fl: 1.0  # Front Left motor calibration
-    motor_cal_fr: 1.0  # Front Right motor calibration  
-    motor_cal_rl: 1.0  # Rear Left motor calibration
-    motor_cal_rr: 1.0  # Rear Right motor calibration
+    motor_cal_fl: 1.0  # Front Left motor calibration factor
+    motor_cal_fr: 1.0  # Front Right motor calibration factor  
+    motor_cal_rl: 1.0  # Rear Left motor calibration factor
+    motor_cal_rr: 1.0  # Rear Right motor calibration factor
     
     # Calibration procedure:
     # 1. Set all values to 1.0
