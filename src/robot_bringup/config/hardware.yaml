@@ -92,6 +92,9 @@ enhanced_yahboom_driver:
     max_linear_velocity: 1.5   # m/s
     max_angular_velocity: 3.0  # rad/s
     
+    # Motor stopping behavior
+    use_immediate_braking: true  # Use reset_car_state for immediate stops (recommended: true)
+    
     # Publishing rates
     imu_publish_rate: 50.0     # Hz
     odom_publish_rate: 20.0    # Hz  

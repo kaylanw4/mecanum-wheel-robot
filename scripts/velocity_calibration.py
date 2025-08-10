@@ -1,101 +1,34 @@
 #!/usr/bin/env python3
 """
-Professional Mecanum Robot Velocity Calibration Tool
+Simple Velocity Calibration Script for Mecanum Robot
 
-This industry-standard calibration script tests and calibrates velocity control
-for a mecanum wheel robot across all three degrees of freedom:
-1. Linear forward/backward motion (X-axis)
-2. Lateral strafe motion (Y-axis) 
-3. Rotational motion (Z-axis)
+Tests forward movement at 0.5 m/s for 5 seconds (expecting 2.5m travel)
+Then tests strafe and rotation with similar pattern.
+Ensures proper stop commands are sent.
 
-The script provides:
-- Automated velocity commands with precise timing
-- Real-time position/orientation tracking
-- Statistical analysis of velocity accuracy
-- Calibration factor recommendations
-- Professional data logging and reporting
-
-Author: Claude Code Assistant
-Date: 2025-08-10
+Usage:
+    python3 velocity_calibration.py
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-
-import sys
 import time
 import math
-import csv
-import os
+import sys
 from datetime import datetime
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
-import numpy as np
-from scipy import stats
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String
-from sensor_msgs.msg import Joy
-
-# ANSI color codes for terminal output
-class Colors:
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    MAGENTA = '\033[95m'
-    CYAN = '\033[96m'
-    WHITE = '\033[97m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-    END = '\033[0m'
 
 
-@dataclass
-class VelocityTestResult:
-    """Data structure for storing individual test results"""
-    test_name: str
-    commanded_velocity: float
-    measured_velocity: float
-    duration: float
-    start_position: Tuple[float, float, float]  # x, y, theta
-    end_position: Tuple[float, float, float]
-    displacement: float
-    velocity_error: float
-    velocity_error_percent: float
-    timestamp: str
-
-
-@dataclass
-class CalibrationResults:
-    """Data structure for storing calibration analysis results"""
-    test_type: str  # 'linear_x', 'linear_y', 'angular_z'
-    mean_error_percent: float
-    std_error_percent: float
-    recommended_scale_factor: float
-    r_squared: float
-    test_results: List[VelocityTestResult]
-
-
-class VelocityCalibrationTool(Node):
-    """
-    Professional velocity calibration tool for mecanum wheel robots
-    
-    Features:
-    - Comprehensive testing of all 3 DOF (linear X/Y, angular Z)
-    - Statistical analysis with R² correlation
-    - Automated calibration factor calculation
-    - Professional data logging and CSV export
-    - Real-time progress monitoring
-    - Safety features with emergency stop
-    """
+class VelocityCalibration(Node):
+    """Simple velocity calibration for mecanum robot"""
     
     def __init__(self):
-        super().__init__('velocity_calibration_tool')
+        super().__init__('velocity_calibration')
         
-        # Setup QoS profiles for reliable communication
+        # Setup QoS profile
         qos_profile = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -103,62 +36,22 @@ class VelocityCalibrationTool(Node):
         )
         
         # Publishers and subscribers
-        # Note: Publishing to /cmd_vel bypasses the velocity smoother for direct hardware control
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', qos_profile)
-        self.status_pub = self.create_publisher(String, 'calibration_status', qos_profile)
         self.odom_sub = self.create_subscription(
             Odometry, 'odom', self.odom_callback, qos_profile)
-        self.joy_sub = self.create_subscription(
-            Joy, 'joy', self.joy_callback, qos_profile)
-            
+        
         # State variables
-        self.current_odom: Optional[Odometry] = None
-        self.initial_position: Optional[Tuple[float, float, float]] = None
-        self.test_start_position: Optional[Tuple[float, float, float]] = None
-        self.test_start_time: Optional[float] = None
-        self.emergency_stop = False
-        self.joystick_connected = False
+        self.current_odom = None
         
-        # Test configuration
-        self.test_velocities = {
-            'linear_x': [0.1, 0.2, 0.3, 0.5, 0.8],  # m/s forward/backward
-            'linear_y': [0.1, 0.2, 0.3, 0.5, 0.8],  # m/s left/right strafe
-            'angular_z': [0.2, 0.5, 0.8, 1.0, 1.5]  # rad/s rotation
-        }
-        self.test_duration = 5.0  # seconds per test
-        self.stabilization_time = 2.0  # seconds to wait between tests
-        
-        # Results storage
-        self.all_results: List[VelocityTestResult] = []
-        self.calibration_results: List[CalibrationResults] = []
-        
-        # Create output directory
-        self.output_dir = '/home/kaylanw4/ros2_ws/calibration_results'
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        self.get_logger().info(f"{Colors.GREEN}🚀 Professional Velocity Calibration Tool Initialized{Colors.END}")
-        self.get_logger().info(f"{Colors.CYAN}📁 Results will be saved to: {self.output_dir}{Colors.END}")
-        
-    def odom_callback(self, msg: Odometry):
+        self.get_logger().info("Velocity Calibration Tool Initialized")
+        self.get_logger().info(f"Publishing cmd_vel to: {self.cmd_vel_pub.topic_name}")
+        self.get_logger().info(f"Subscribing to odom from: {self.odom_sub.topic_name}")
+    
+    def odom_callback(self, msg):
         """Store latest odometry data"""
         self.current_odom = msg
-        
-    def joy_callback(self, msg: Joy):
-        """Monitor joystick for emergency stop (PS4 controller)"""
-        self.joystick_connected = True
-        # PS4 controller: button 8 is Share, button 9 is Options
-        # Emergency stop if both pressed simultaneously
-        if len(msg.buttons) > 9 and msg.buttons[8] and msg.buttons[9]:
-            self.emergency_stop = True
-            self.get_logger().error(f"{Colors.RED}🚨 EMERGENCY STOP ACTIVATED via joystick{Colors.END}")
-            self.stop_robot()
     
-    def stop_robot(self):
-        """Immediately stop the robot"""
-        stop_msg = Twist()
-        self.cmd_vel_pub.publish(stop_msg)
-        
-    def get_current_position(self) -> Optional[Tuple[float, float, float]]:
+    def get_current_position(self):
         """Get current robot position (x, y, theta) from odometry"""
         if self.current_odom is None:
             return None
@@ -173,403 +66,406 @@ class VelocityCalibrationTool(Node):
         
         return (pos.x, pos.y, theta)
     
-    def wait_for_odometry(self, timeout: float = 10.0) -> bool:
-        """Wait for odometry data to be available"""
-        self.get_logger().info(f"{Colors.YELLOW}⏳ Waiting for odometry data...{Colors.END}")
+    def wait_for_odometry(self, timeout=10.0):
+        """Wait for odometry data"""
+        self.get_logger().info("Waiting for odometry data...")
         
         start_time = time.time()
-        rate = self.create_rate(10)  # 10 Hz
-        
         while rclpy.ok() and (time.time() - start_time) < timeout:
             rclpy.spin_once(self, timeout_sec=0.1)
             if self.current_odom is not None:
-                self.get_logger().info(f"{Colors.GREEN}✅ Odometry data received{Colors.END}")
+                self.get_logger().info("Odometry data received")
                 return True
-            rate.sleep()
         
-        self.get_logger().error(f"{Colors.RED}❌ Timeout waiting for odometry data{Colors.END}")
+        self.get_logger().error("Timeout waiting for odometry")
         return False
     
-    def calculate_displacement(self, start_pos: Tuple[float, float, float], 
-                              end_pos: Tuple[float, float, float], 
-                              motion_type: str) -> float:
-        """Calculate displacement based on motion type"""
-        x1, y1, theta1 = start_pos
-        x2, y2, theta2 = end_pos
+    def stop_robot(self):
+        """Send zero velocity command to stop robot"""
+        self.get_logger().info("Creating STOP command (all zeros)...")
+        stop_msg = Twist()
+        # All fields default to 0.0: linear.x, linear.y, linear.z, angular.x, angular.y, angular.z
+        stop_msg.linear.x = 0.0
+        stop_msg.linear.y = 0.0
+        stop_msg.linear.z = 0.0
+        stop_msg.angular.x = 0.0
+        stop_msg.angular.y = 0.0
+        stop_msg.angular.z = 0.0
         
-        if motion_type == 'linear_x':
-            # Forward/backward displacement
-            return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        elif motion_type == 'linear_y':
-            # Strafe displacement (should be perpendicular to forward direction)
-            return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        elif motion_type == 'angular_z':
-            # Angular displacement
-            delta_theta = theta2 - theta1
-            # Normalize angle to [-pi, pi]
-            while delta_theta > math.pi:
-                delta_theta -= 2 * math.pi
-            while delta_theta < -math.pi:
-                delta_theta += 2 * math.pi
-            return abs(delta_theta)
-        else:
-            return 0.0
+        self.get_logger().info(f"Publishing STOP: linear.x={stop_msg.linear.x}, linear.y={stop_msg.linear.y}, angular.z={stop_msg.angular.z}")
+        self.cmd_vel_pub.publish(stop_msg)
+        
+        # Add a small delay and send again to be sure
+        time.sleep(0.1)
+        self.cmd_vel_pub.publish(stop_msg)
+        self.get_logger().info("STOP command published (sent twice for reliability)")
     
-    def execute_velocity_test(self, velocity: float, motion_type: str, 
-                             test_number: int, total_tests: int) -> VelocityTestResult:
-        """Execute a single velocity test"""
+    def execute_motion_test(self, velocity_cmd, test_name, expected_distance):
+        """Execute a single motion test"""
         
-        self.get_logger().info(f"{Colors.BOLD}{Colors.BLUE}🧪 Test {test_number}/{total_tests}: "
-                              f"{motion_type.replace('_', ' ').title()} at {velocity} "
-                              f"{'m/s' if 'linear' in motion_type else 'rad/s'}{Colors.END}")
+        self.get_logger().info(f"\n=== {test_name} ===")
+        self.get_logger().info(f"Expected distance: {expected_distance}m")
         
-        # Wait for stabilization
-        self.get_logger().info(f"{Colors.YELLOW}⏳ Stabilizing for {self.stabilization_time}s...{Colors.END}")
-        time.sleep(self.stabilization_time)
-        
-        # Check for emergency stop
-        if self.emergency_stop:
-            raise RuntimeError("Emergency stop activated")
+        # Stabilization delay
+        self.get_logger().info("Stabilizing for 2 seconds...")
+        time.sleep(2.0)
         
         # Get starting position
         start_pos = self.get_current_position()
         if start_pos is None:
-            raise RuntimeError("Could not get starting position")
+            self.get_logger().error("Could not get starting position")
+            return False
         
-        self.get_logger().info(f"{Colors.CYAN}📍 Start position: X={start_pos[0]:.3f}m, "
-                              f"Y={start_pos[1]:.3f}m, Θ={math.degrees(start_pos[2]):.1f}°{Colors.END}")
+        self.get_logger().info(f"Start position: X={start_pos[0]:.3f}m, Y={start_pos[1]:.3f}m, Θ={math.degrees(start_pos[2]):.1f}°")
         
-        # Create and publish velocity command
-        cmd = Twist()
-        if motion_type == 'linear_x':
-            cmd.linear.x = velocity
-        elif motion_type == 'linear_y':
-            cmd.linear.y = velocity
-        elif motion_type == 'angular_z':
-            cmd.angular.z = velocity
+        # Execute motion for 5 seconds
+        self.get_logger().info("Executing motion for 5 seconds...")
+        start_time = time.time()
+        end_time = start_time + 5.0
         
-        # Record test start time
-        test_start_time = time.time()
+        # Debug: Show what command we're sending
+        self.get_logger().info(f"Sending cmd_vel: linear.x={velocity_cmd.linear.x}, linear.y={velocity_cmd.linear.y}, angular.z={velocity_cmd.angular.z}")
         
-        self.get_logger().info(f"{Colors.GREEN}🚀 Executing motion for {self.test_duration}s...{Colors.END}")
+        # Send velocity commands at 10 Hz (every 0.1 seconds)
+        command_count = 0
+        last_log_time = start_time
+        loop_interval = 0.1  # 10 Hz
         
-        # Execute motion for specified duration
-        end_time = test_start_time + self.test_duration
-        rate = self.create_rate(20)  # 20 Hz command rate
+        while time.time() < end_time and rclpy.ok():
+            current_time = time.time()
+            
+            # Log progress every second
+            if current_time - last_log_time >= 1.0:
+                elapsed = current_time - start_time
+                remaining = end_time - current_time
+                self.get_logger().info(f"Motion progress: {elapsed:.1f}s elapsed, {remaining:.1f}s remaining, {command_count} commands sent")
+                last_log_time = current_time
+            
+            # Publish command
+            self.cmd_vel_pub.publish(velocity_cmd)
+            command_count += 1
+            
+            # Simple sleep instead of rate.sleep()
+            time.sleep(loop_interval)
         
-        while time.time() < end_time and not self.emergency_stop:
-            self.cmd_vel_pub.publish(cmd)
-            rclpy.spin_once(self, timeout_sec=0.01)
-            rate.sleep()
+        actual_duration = time.time() - start_time
+        self.get_logger().info(f"EXIT MOTION LOOP: {actual_duration:.2f}s, sent {command_count} commands")
         
-        # Stop the robot
+        # Stop robot immediately
+        self.get_logger().info("TIME TO STOP - calling stop_robot()...")
         self.stop_robot()
+        self.get_logger().info("stop_robot() completed, robot should be stopped")
         
-        # Small delay to ensure robot stops
-        time.sleep(0.5)
+        # Wait for robot to stop
+        time.sleep(1.0)
         
         # Get ending position
         end_pos = self.get_current_position()
         if end_pos is None:
-            raise RuntimeError("Could not get ending position")
+            self.get_logger().error("Could not get ending position")
+            return False
         
-        actual_duration = time.time() - test_start_time
+        self.get_logger().info(f"End position: X={end_pos[0]:.3f}m, Y={end_pos[1]:.3f}m, Θ={math.degrees(end_pos[2]):.1f}°")
         
-        self.get_logger().info(f"{Colors.CYAN}📍 End position: X={end_pos[0]:.3f}m, "
-                              f"Y={end_pos[1]:.3f}m, Θ={math.degrees(end_pos[2]):.1f}°{Colors.END}")
+        # Calculate actual distance traveled
+        if "Forward" in test_name:
+            # For forward motion, calculate linear distance
+            actual_distance = math.sqrt((end_pos[0] - start_pos[0])**2 + (end_pos[1] - start_pos[1])**2)
+        elif "Strafe" in test_name:
+            # For strafe motion, calculate linear distance
+            actual_distance = math.sqrt((end_pos[0] - start_pos[0])**2 + (end_pos[1] - start_pos[1])**2)
+        elif "Rotation" in test_name:
+            # For rotation, calculate angular distance
+            angle_diff = end_pos[2] - start_pos[2]
+            # Normalize angle
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            actual_distance = abs(angle_diff)
+        else:
+            actual_distance = 0.0
         
-        # Calculate results
-        displacement = self.calculate_displacement(start_pos, end_pos, motion_type)
-        measured_velocity = displacement / actual_duration
-        velocity_error = measured_velocity - abs(velocity)  # Use abs for bidirectional motion
-        velocity_error_percent = (velocity_error / abs(velocity)) * 100 if velocity != 0 else 0
+        # Calculate error
+        error = actual_distance - expected_distance
+        error_percent = (error / expected_distance) * 100 if expected_distance != 0 else 0
         
-        self.get_logger().info(f"{Colors.MAGENTA}📊 Results: Displacement={displacement:.3f}, "
-                              f"Measured Velocity={measured_velocity:.3f}, "
-                              f"Error={velocity_error_percent:.1f}%{Colors.END}")
+        self.get_logger().info(f"Actual distance: {actual_distance:.3f}")
+        self.get_logger().info(f"Expected distance: {expected_distance:.3f}")
+        self.get_logger().info(f"Error: {error:.3f} ({error_percent:+.1f}%)")
         
-        # Create test result
-        result = VelocityTestResult(
-            test_name=f"{motion_type}_{velocity}",
-            commanded_velocity=velocity,
-            measured_velocity=measured_velocity,
-            duration=actual_duration,
-            start_position=start_pos,
-            end_position=end_pos,
-            displacement=displacement,
-            velocity_error=velocity_error,
-            velocity_error_percent=velocity_error_percent,
-            timestamp=datetime.now().isoformat()
-        )
-        
-        return result
+        return True
     
-    def analyze_calibration_results(self, motion_type: str, 
-                                   results: List[VelocityTestResult]) -> CalibrationResults:
-        """Perform statistical analysis and calculate calibration factors"""
+    def run_rotation_tests(self):
+        """Interactive rotation testing with multiple angles and repeat option"""
         
-        self.get_logger().info(f"{Colors.BOLD}{Colors.BLUE}📈 Analyzing {motion_type.replace('_', ' ').title()} "
-                              f"calibration results...{Colors.END}")
+        # Rotation test options
+        rotation_options = {
+            '1': {'name': '45° rotation', 'angle_deg': 45, 'angle_rad': math.pi/4, 'duration': (math.pi/4) / 1.0},
+            '2': {'name': '90° rotation', 'angle_deg': 90, 'angle_rad': math.pi/2, 'duration': (math.pi/2) / 1.0}, 
+            '3': {'name': '180° rotation', 'angle_deg': 180, 'angle_rad': math.pi, 'duration': math.pi / 1.0},
+            '4': {'name': '360° rotation', 'angle_deg': 360, 'angle_rad': 2*math.pi, 'duration': (2*math.pi) / 1.0},
+            '5': {'name': '5-second test (286.5°)', 'angle_deg': 286.5, 'angle_rad': 5.0, 'duration': 5.0}
+        }
         
-        if not results:
-            raise ValueError("No results to analyze")
-        
-        # Extract data for analysis
-        commanded_vels = [abs(r.commanded_velocity) for r in results]
-        measured_vels = [r.measured_velocity for r in results]
-        errors_percent = [r.velocity_error_percent for r in results]
-        
-        # Calculate statistics
-        mean_error_percent = np.mean(errors_percent)
-        std_error_percent = np.std(errors_percent)
-        
-        # Linear regression to find scale factor
-        slope, intercept, r_value, p_value, std_err = stats.linregress(commanded_vels, measured_vels)
-        r_squared = r_value ** 2
-        
-        # Recommended scale factor is 1/slope (to correct for systematic error)
-        recommended_scale_factor = 1.0 / slope if slope != 0 else 1.0
-        
-        self.get_logger().info(f"{Colors.GREEN}📊 Analysis Results:{Colors.END}")
-        self.get_logger().info(f"   Mean Error: {mean_error_percent:.2f}% ± {std_error_percent:.2f}%")
-        self.get_logger().info(f"   R² Correlation: {r_squared:.4f}")
-        self.get_logger().info(f"   Recommended Scale Factor: {recommended_scale_factor:.4f}")
-        
-        return CalibrationResults(
-            test_type=motion_type,
-            mean_error_percent=mean_error_percent,
-            std_error_percent=std_error_percent,
-            recommended_scale_factor=recommended_scale_factor,
-            r_squared=r_squared,
-            test_results=results
-        )
-    
-    def save_results_to_csv(self, filename: str):
-        """Save all test results to CSV file"""
-        
-        filepath = os.path.join(self.output_dir, filename)
-        
-        with open(filepath, 'w', newline='') as csvfile:
-            fieldnames = [
-                'test_name', 'commanded_velocity', 'measured_velocity', 'duration',
-                'start_x', 'start_y', 'start_theta', 'end_x', 'end_y', 'end_theta',
-                'displacement', 'velocity_error', 'velocity_error_percent', 'timestamp'
-            ]
+        while True:
+            self.get_logger().info("\n=== ROTATION TEST OPTIONS ===")
+            print("Choose a rotation test:")
+            print("  1. 45°  rotation  (0.785 rad, 0.79s)")
+            print("  2. 90°  rotation  (1.571 rad, 1.57s)")
+            print("  3. 180° rotation  (3.142 rad, 3.14s)")
+            print("  4. 360° rotation  (6.283 rad, 6.28s)")
+            print("  5. 5-second test  (5.000 rad, 5.00s)")
+            print("  s. Skip rotation tests")
+            print("  q. Quit rotation tests")
             
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
+            choice = input("Enter your choice: ").strip().lower()
             
-            for result in self.all_results:
-                writer.writerow({
-                    'test_name': result.test_name,
-                    'commanded_velocity': result.commanded_velocity,
-                    'measured_velocity': result.measured_velocity,
-                    'duration': result.duration,
-                    'start_x': result.start_position[0],
-                    'start_y': result.start_position[1],
-                    'start_theta': result.start_position[2],
-                    'end_x': result.end_position[0],
-                    'end_y': result.end_position[1],
-                    'end_theta': result.end_position[2],
-                    'displacement': result.displacement,
-                    'velocity_error': result.velocity_error,
-                    'velocity_error_percent': result.velocity_error_percent,
-                    'timestamp': result.timestamp
-                })
-        
-        self.get_logger().info(f"{Colors.GREEN}💾 Detailed results saved to: {filepath}{Colors.END}")
-    
-    def generate_calibration_report(self):
-        """Generate a comprehensive calibration report"""
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"calibration_report_{timestamp}.txt"
-        report_path = os.path.join(self.output_dir, report_filename)
-        
-        with open(report_path, 'w') as f:
-            f.write("="*80 + "\n")
-            f.write("MECANUM ROBOT VELOCITY CALIBRATION REPORT\n")
-            f.write("="*80 + "\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total Tests Performed: {len(self.all_results)}\n\n")
-            
-            # Summary for each motion type
-            for cal_result in self.calibration_results:
-                f.write(f"\n{cal_result.test_type.replace('_', ' ').upper()} CALIBRATION\n")
-                f.write("-" * 40 + "\n")
-                f.write(f"Mean Velocity Error: {cal_result.mean_error_percent:.2f}% "
-                       f"± {cal_result.std_error_percent:.2f}%\n")
-                f.write(f"R² Correlation: {cal_result.r_squared:.4f}\n")
-                f.write(f"Recommended Scale Factor: {cal_result.recommended_scale_factor:.4f}\n")
+            if choice == 's':
+                self.get_logger().info("Skipping all rotation tests")
+                break
+            elif choice == 'q':
+                self.get_logger().info("Exiting rotation tests")
+                break
+            elif choice in rotation_options:
+                option = rotation_options[choice]
                 
-                f.write("\nIndividual Test Results:\n")
-                for result in cal_result.test_results:
-                    f.write(f"  {result.commanded_velocity:>6.2f} -> {result.measured_velocity:>6.3f} "
-                           f"({result.velocity_error_percent:>+6.1f}%)\n")
-            
-            # Configuration recommendations
-            f.write("\n" + "="*80 + "\n")
-            f.write("HARDWARE CONFIGURATION RECOMMENDATIONS\n")
-            f.write("="*80 + "\n")
-            f.write("\nAdd the following parameters to your hardware.yaml:\n\n")
-            
-            for cal_result in self.calibration_results:
-                param_name = f"velocity_scale_{cal_result.test_type.split('_')[1]}"
-                f.write(f"{param_name}: {cal_result.recommended_scale_factor:.4f}\n")
-            
-            f.write("\nExample configuration:\n")
-            f.write("enhanced_yahboom_driver:\n")
-            f.write("  ros__parameters:\n")
-            for cal_result in self.calibration_results:
-                param_name = f"velocity_scale_{cal_result.test_type.split('_')[1]}"
-                f.write(f"    {param_name}: {cal_result.recommended_scale_factor:.4f}\n")
+                self.get_logger().info(f"\n=== {option['name'].upper()} ===")
+                self.get_logger().info(f"Expected: {option['angle_rad']:.3f} radians = {option['angle_deg']:.1f}°")
+                self.get_logger().info(f"Duration: {option['duration']:.2f} seconds at 1.0 rad/s")
+                
+                confirm = input(f"Press Enter to start {option['name']}, or 'c' to cancel: ").strip().lower()
+                if confirm != 'c':
+                    # Create rotation command
+                    cmd_rotate = Twist()
+                    cmd_rotate.angular.z = 1.0
+                    
+                    # Execute test with custom duration
+                    if not self.execute_rotation_test(cmd_rotate, option['name'], option['angle_rad'], option['duration']):
+                        self.get_logger().error("Rotation test failed")
+                        continue
+                else:
+                    self.get_logger().info(f"Cancelled {option['name']}")
+                
+                # Ask if user wants to test another angle
+                repeat = input("\nTest another rotation angle? (y/N): ").strip().lower()
+                if repeat not in ['y', 'yes']:
+                    break
+            else:
+                print("Invalid choice. Please try again.")
+
+    def execute_rotation_test(self, velocity_cmd, test_name, expected_radians, duration):
+        """Execute a rotation test with custom duration"""
         
-        self.get_logger().info(f"{Colors.GREEN}📋 Calibration report saved to: {report_path}{Colors.END}")
+        self.get_logger().info(f"\n=== {test_name} ===")
+        self.get_logger().info(f"Expected rotation: {expected_radians:.3f} radians ({math.degrees(expected_radians):.1f}°)")
         
-        # Also print key results to console
-        self.print_summary_results()
+        # Stabilization delay
+        self.get_logger().info("Stabilizing for 2 seconds...")
+        time.sleep(2.0)
+        
+        # Get starting position
+        start_pos = self.get_current_position()
+        if start_pos is None:
+            self.get_logger().error("Could not get starting position")
+            return False
+        
+        self.get_logger().info(f"Start position: X={start_pos[0]:.3f}m, Y={start_pos[1]:.3f}m, Θ={math.degrees(start_pos[2]):.1f}°")
+        
+        # Debug: Show what command we're sending
+        self.get_logger().info(f"Sending cmd_vel: angular.z={velocity_cmd.angular.z}, duration={duration:.2f}s")
+        
+        # Execute motion for specified duration
+        self.get_logger().info(f"Executing rotation for {duration:.2f} seconds...")
+        start_time = time.time()
+        end_time = start_time + duration
+        
+        command_count = 0
+        last_log_time = start_time
+        loop_interval = 0.1  # 10 Hz
+        
+        while time.time() < end_time and rclpy.ok():
+            current_time = time.time()
+            
+            # Log progress every second
+            if current_time - last_log_time >= 1.0:
+                elapsed = current_time - start_time
+                remaining = end_time - current_time
+                self.get_logger().info(f"Rotation progress: {elapsed:.1f}s elapsed, {remaining:.1f}s remaining")
+                last_log_time = current_time
+            
+            # Publish command
+            self.cmd_vel_pub.publish(velocity_cmd)
+            command_count += 1
+            
+            # Simple sleep instead of rate.sleep()
+            time.sleep(loop_interval)
+        
+        actual_duration = time.time() - start_time
+        self.get_logger().info(f"EXIT ROTATION LOOP: {actual_duration:.2f}s, sent {command_count} commands")
+        
+        # Stop robot immediately
+        self.get_logger().info("TIME TO STOP - calling stop_robot()...")
+        self.stop_robot()
+        self.get_logger().info("stop_robot() completed, robot should be stopped")
+        
+        # Wait for robot to stop
+        time.sleep(1.0)
+        
+        # Get ending position
+        end_pos = self.get_current_position()
+        if end_pos is None:
+            self.get_logger().error("Could not get ending position")
+            return False
+        
+        self.get_logger().info(f"End position: X={end_pos[0]:.3f}m, Y={end_pos[1]:.3f}m, Θ={math.degrees(end_pos[2]):.1f}°")
+        
+        # Calculate actual rotation
+        angle_diff = end_pos[2] - start_pos[2]
+        # Normalize angle to [-pi, pi]
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        actual_rotation = abs(angle_diff)
+        
+        # Calculate error
+        error = actual_rotation - expected_radians
+        error_percent = (error / expected_radians) * 100 if expected_radians != 0 else 0
+        
+        self.get_logger().info(f"Actual rotation: {actual_rotation:.3f} rad ({math.degrees(actual_rotation):.1f}°)")
+        self.get_logger().info(f"Expected rotation: {expected_radians:.3f} rad ({math.degrees(expected_radians):.1f}°)")
+        self.get_logger().info(f"Error: {error:.3f} rad ({error_percent:+.1f}%)")
+        
+        return True
     
-    def print_summary_results(self):
-        """Print summary results to console"""
-        
-        print(f"\n{Colors.BOLD}{Colors.GREEN}🎯 CALIBRATION SUMMARY{Colors.END}")
-        print("="*60)
-        
-        for cal_result in self.calibration_results:
-            motion_name = cal_result.test_type.replace('_', ' ').title()
-            print(f"\n{Colors.BOLD}{motion_name}:{Colors.END}")
-            print(f"  Mean Error: {Colors.YELLOW}{cal_result.mean_error_percent:+6.2f}%{Colors.END} "
-                  f"(±{cal_result.std_error_percent:.2f}%)")
-            print(f"  Correlation: {Colors.CYAN}R² = {cal_result.r_squared:.4f}{Colors.END}")
-            print(f"  Scale Factor: {Colors.MAGENTA}{cal_result.recommended_scale_factor:.4f}{Colors.END}")
-        
-        print(f"\n{Colors.BOLD}{Colors.BLUE}📁 Files Generated:{Colors.END}")
-        print(f"  • Detailed CSV data")
-        print(f"  • Calibration report with config recommendations")
-        print(f"  • All files saved to: {self.output_dir}")
-        
-        print(f"\n{Colors.BOLD}{Colors.GREEN}✅ Calibration Complete!{Colors.END}")
-    
-    def run_full_calibration(self):
-        """Execute the complete calibration sequence"""
+    def check_joystick_interference(self):
+        """Check if joystick is running and warn user"""
+        try:
+            # Check if joystick_controller node exists
+            result = self.get_node_names()
+            if '/joystick_controller' in result:
+                self.get_logger().warn("WARNING: joystick_controller is running!")
+                self.get_logger().warn("This may interfere with calibration commands.")
+                self.get_logger().warn("Launch robot with use_joystick:=false for calibration")
+                return True
+        except:
+            pass
+        return False
+
+    def run_calibration(self):
+        """Run the complete calibration sequence"""
         
         try:
             # Wait for odometry
             if not self.wait_for_odometry():
                 return False
-            
-            self.get_logger().info(f"{Colors.BOLD}{Colors.GREEN}🚀 Starting Full Velocity Calibration{Colors.END}")
-            
-            if self.joystick_connected:
-                self.get_logger().info(f"{Colors.YELLOW}🎮 Joystick connected - Press Share+Options for emergency stop{Colors.END}")
-            
-            # Calculate total number of tests
-            total_tests = sum(len(velocities) for velocities in self.test_velocities.values())
-            current_test = 0
-            
-            # Run tests for each motion type
-            for motion_type, velocities in self.test_velocities.items():
                 
-                self.get_logger().info(f"\n{Colors.BOLD}{Colors.BLUE}🧪 Starting {motion_type.replace('_', ' ').title()} "
-                                      f"Calibration Tests{Colors.END}")
-                
-                motion_results = []
-                
-                for velocity in velocities:
-                    current_test += 1
-                    
-                    # Test positive velocity
-                    result_pos = self.execute_velocity_test(velocity, motion_type, current_test, total_tests)
-                    motion_results.append(result_pos)
-                    self.all_results.append(result_pos)
-                    
-                    # For linear motions, also test negative velocity
-                    if motion_type.startswith('linear'):
-                        current_test += 1
-                        result_neg = self.execute_velocity_test(-velocity, motion_type, current_test, total_tests)
-                        motion_results.append(result_neg)
-                        self.all_results.append(result_neg)
-                
-                # Analyze results for this motion type
-                calibration_result = self.analyze_calibration_results(motion_type, motion_results)
-                self.calibration_results.append(calibration_result)
+            # Check for joystick interference
+            if self.check_joystick_interference():
+                self.get_logger().warn("Continuing anyway, but results may be unreliable...")
             
-            # Save results
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            csv_filename = f"velocity_calibration_data_{timestamp}.csv"
-            self.save_results_to_csv(csv_filename)
+            self.get_logger().info("Starting velocity calibration...")
             
-            # Generate report
-            self.generate_calibration_report()
+            # Test 1: Forward motion at 0.5 m/s for 5 seconds (expect 2.5m)
+            self.get_logger().info("\n=== READY FOR TEST 1: FORWARD MOTION ===")
+            response = input("Press Enter to start, or 's' to skip: ").strip().lower()
+            if response != 's':
+                cmd_forward = Twist()
+                cmd_forward.linear.x = 0.5
+                if not self.execute_motion_test(cmd_forward, "Forward Motion Test", 2.5):
+                    return False
+            else:
+                self.get_logger().info("Skipping forward motion test")
+            
+            # Test 2: Strafe right at 0.5 m/s for 5 seconds (expect 2.5m)
+            self.get_logger().info("\n=== READY FOR TEST 2: STRAFE RIGHT ===")
+            response = input("Press Enter to start, or 's' to skip: ").strip().lower()
+            if response != 's':
+                cmd_strafe = Twist()
+                cmd_strafe.linear.y = 0.5
+                if not self.execute_motion_test(cmd_strafe, "Strafe Right Test", 2.5):
+                    return False
+            else:
+                self.get_logger().info("Skipping strafe test")
+            
+            # Test 3: Rotation tests with multiple angle options
+            self.run_rotation_tests()
+            
+            self.get_logger().info("\n=== CALIBRATION COMPLETE ===")
+            self.get_logger().info("Check the logged results above for velocity accuracy")
             
             return True
             
         except Exception as e:
-            self.get_logger().error(f"{Colors.RED}❌ Calibration failed: {str(e)}{Colors.END}")
+            self.get_logger().error(f"Calibration failed: {str(e)}")
             self.stop_robot()
             return False
+    
+    def destroy_node(self):
+        """Ensure robot stops when node is destroyed"""
+        self.get_logger().info("Shutting down - stopping robot")
+        self.stop_robot()
+        super().destroy_node()
 
 
 def main():
-    """Main function to run the calibration tool"""
+    """Main function"""
     
-    print(f"{Colors.BOLD}{Colors.BLUE}")
-    print("="*80)
-    print("          PROFESSIONAL MECANUM ROBOT VELOCITY CALIBRATION")
-    print("="*80)
-    print(f"{Colors.END}")
-    print(f"{Colors.GREEN}🤖 This tool will calibrate velocity control for all 3 degrees of freedom:{Colors.END}")
-    print(f"   • {Colors.CYAN}Linear X:{Colors.END} Forward/backward motion")
-    print(f"   • {Colors.CYAN}Linear Y:{Colors.END} Left/right strafe motion") 
-    print(f"   • {Colors.CYAN}Angular Z:{Colors.END} Rotation around vertical axis")
+    print("="*60)
+    print("    SIMPLE VELOCITY CALIBRATION")
+    print("="*60)
+    print("This will test:")
+    print("  • Forward at 0.5 m/s for 5s (expecting 2.5m travel)")
+    print("  • Strafe at 0.5 m/s for 5s (expecting 2.5m travel)")
+    print("  • Rotate at 1.0 rad/s for 5s (expecting 5.0 rad)")
     print()
-    print(f"{Colors.BLUE}🔧 Enhanced System Compatibility:{Colors.END}")
-    print("   • Works with enhanced_robot_bringup.launch.py")
-    print("   • Bypasses velocity smoother for direct hardware calibration")
-    print("   • Requires joystick disabled during calibration")
+    print("SETUP REQUIRED:")
+    print("  • Launch robot with: use_joystick:=false")
+    print("  • Example: ros2 launch robot_bringup enhanced_robot_bringup.launch.py use_joystick:=false")
+    print("  • This prevents joystick from interfering with calibration commands")
     print()
-    print(f"{Colors.YELLOW}⚠️  SAFETY REQUIREMENTS:{Colors.END}")
-    print("   • Ensure robot has at least 5x5 meter clear space")
-    print("   • Keep emergency stop (joystick Share+Options) ready")
-    print("   • Monitor robot during all tests")
-    print("   • Ensure robot is on level ground")
+    print("SAFETY: Ensure 5m x 5m clear space around robot")
     print()
     
-    # Get user confirmation
-    try:
-        response = input(f"{Colors.BOLD}Continue with calibration? (y/N): {Colors.END}")
-        if response.lower() not in ['y', 'yes']:
-            print(f"{Colors.YELLOW}Calibration cancelled by user{Colors.END}")
+    # Get user confirmation (skip if --auto flag is provided)
+    if "--auto" not in sys.argv:
+        try:
+            response = input("Continue with calibration? (y/N): ")
+            if response.lower() not in ['y', 'yes']:
+                print("Calibration cancelled")
+                return
+        except KeyboardInterrupt:
+            print("\nCalibration cancelled")
             return
-    except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}Calibration cancelled by user{Colors.END}")
-        return
     
     # Initialize ROS2
     rclpy.init()
     
+    calibration_tool = None
     try:
-        # Create calibration node
-        calibration_tool = VelocityCalibrationTool()
-        
-        # Run calibration
-        success = calibration_tool.run_full_calibration()
+        calibration_tool = VelocityCalibration()
+        success = calibration_tool.run_calibration()
         
         if success:
-            print(f"\n{Colors.BOLD}{Colors.GREEN}🎉 Calibration completed successfully!{Colors.END}")
+            print("\nCalibration completed successfully!")
         else:
-            print(f"\n{Colors.BOLD}{Colors.RED}❌ Calibration failed{Colors.END}")
+            print("\nCalibration failed")
             
     except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}🛑 Calibration interrupted by user{Colors.END}")
+        print("\nCalibration interrupted")
+        if calibration_tool:
+            calibration_tool.stop_robot()
     except Exception as e:
-        print(f"\n{Colors.RED}❌ Calibration error: {str(e)}{Colors.END}")
+        print(f"\nCalibration error: {str(e)}")
+        if calibration_tool:
+            calibration_tool.stop_robot()
     finally:
-        # Cleanup
-        try:
-            calibration_tool.destroy_node()
-        except:
-            pass
+        if calibration_tool:
+            try:
+                calibration_tool.destroy_node()
+            except:
+                pass
         rclpy.shutdown()
 
 

@@ -197,19 +197,20 @@ class SimplifiedYahboomDriver(Node):
         self.declare_parameter('base_velocity_scale', 0.3)  # Overall speed scaling (0.1-1.0)
         
         # Fine-tuning calibration parameters
-        self.declare_parameter('velocity_scale_x', 1.0)   # Linear X velocity scaling
-        self.declare_parameter('velocity_scale_y', 1.0)   # Linear Y velocity scaling  
-        self.declare_parameter('velocity_scale_z', 1.0)   # Angular Z velocity scaling
+        self.declare_parameter('velocity_scale_x', 0.82)   # Linear X velocity scaling
+        self.declare_parameter('velocity_scale_y', 0.96)   # Linear Y velocity scaling  
+        self.declare_parameter('velocity_scale_z', 0.59)   # Angular Z velocity scaling
         
         # Individual motor calibration factors [FL, FR, RL, RR]
         self.declare_parameter('motor_cal_fl', 1.0)   # Front Left motor calibration
-        self.declare_parameter('motor_cal_fr', 1.0)   # Front Right motor calibration  
-        self.declare_parameter('motor_cal_rl', 1.0)   # Rear Left motor calibration
+        self.declare_parameter('motor_cal_fr', 0.95)   # Front Right motor calibration  
+        self.declare_parameter('motor_cal_rl', 1.05)   # Rear Left motor calibration
         self.declare_parameter('motor_cal_rr', 1.0)   # Rear Right motor calibration
         
         # Control parameters
         self.declare_parameter('max_linear_velocity', 1.5)  # m/s
-        self.declare_parameter('max_angular_velocity', 3.0)  # rad/s  
+        self.declare_parameter('max_angular_velocity', 3.0)  # rad/s
+        self.declare_parameter('use_immediate_braking', True)  # Use reset_car_state for immediate stops  
         
         # Get parameters
         self.serial_port = self.get_parameter('serial_port').value
@@ -248,6 +249,7 @@ class SimplifiedYahboomDriver(Node):
         # Control parameters
         self.max_linear_velocity = self.get_parameter('max_linear_velocity').value
         self.max_angular_velocity = self.get_parameter('max_angular_velocity').value
+        self.use_immediate_braking = self.get_parameter('use_immediate_braking').value
         
         self.get_logger().info(f"🚀 Base velocity scale: {self.base_velocity_scale:.3f}")
         self.get_logger().info(f"📏 Fine-tune scaling: X={self.velocity_scale_x:.3f}, Y={self.velocity_scale_y:.3f}, Z={self.velocity_scale_z:.3f}")
@@ -332,7 +334,7 @@ class SimplifiedYahboomDriver(Node):
             
         except Exception as e:
             self.get_logger().error(f"❌ Hardware initialization failed: {e}")
-            
+    
     def cmd_vel_callback(self, msg):
         """Handle velocity commands with direct calibrated control"""
         if self.hardware is None:
@@ -343,9 +345,9 @@ class SimplifiedYahboomDriver(Node):
         vy = msg.linear.y
         vz = msg.angular.z
         
-        # IMMEDIATE DEBUG - log received cmd_vel
+        # Calibration mode: only log essential cmd_vel
         if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(vz) > 0.01:
-            self.get_logger().info(f"📥 RECEIVED CMD_VEL: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
+            self.get_logger().info(f"CMD_VEL: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
         
         # Apply velocity limits
         vx = max(-self.max_linear_velocity, min(self.max_linear_velocity, vx))
@@ -362,8 +364,26 @@ class SimplifiedYahboomDriver(Node):
         vy_calibrated = vy_scaled * self.velocity_scale_y
         vz_calibrated = vz_scaled * self.velocity_scale_z
         
+        # Check for stop command and handle it specially
+        is_stop_command = (abs(vx_calibrated) < 0.001 and abs(vy_calibrated) < 0.001 and abs(vz_calibrated) < 0.001)
+        
         # Store calibrated command
         self.last_cmd_vel = [vx_calibrated, vy_calibrated, vz_calibrated]
+        
+        # Handle stop command with immediate motor braking
+        if is_stop_command:
+            try:
+                # First set motors to zero
+                self.hardware.set_motor(0, 0, 0, 0)
+                # Then use reset_car_state for immediate braking/parking if enabled
+                if self.use_immediate_braking:
+                    self.hardware.reset_car_state()
+                if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(vz) > 0.01:  # Only log if transition from motion to stop
+                    brake_msg = "Motors braked" if self.use_immediate_braking else "Motors set to zero"
+                    self.get_logger().info(f"🛑 IMMEDIATE STOP: {brake_msg}")
+            except Exception as e:
+                self.get_logger().warn(f"⚠️ Failed to execute immediate stop: {e}")
+            return
         
         # Use direct motor control for precise velocity control
         # set_car_motion has firmware deadband issues, but set_motor gives true proportional control
@@ -391,12 +411,6 @@ class SimplifiedYahboomDriver(Node):
             m3_speed = motor_speeds[3]  # m3 = RR (Rear Right)
             m4_speed = motor_speeds[2]  # m4 = RL (Rear Left)
             
-            # Debug logging for motor mapping verification
-            if abs(vx_calibrated) > 0.01 or abs(vy_calibrated) > 0.01 or abs(vz_calibrated) > 0.01:
-                self.get_logger().info(f"📥 CMD_VEL: vx={vx_calibrated:.3f}, vy={vy_calibrated:.3f}, vz={vz_calibrated:.3f}")
-                self.get_logger().info(f"🔄 WHEEL VELS: FL={wheel_velocities[0]:.2f}, FR={wheel_velocities[1]:.2f}, RL={wheel_velocities[2]:.2f}, RR={wheel_velocities[3]:.2f}")
-                self.get_logger().info(f"🚀 MOTOR PWM: m1(FR)={m1_speed}, m2(FL)={m2_speed}, m3(RR)={m3_speed}, m4(RL)={m4_speed}")
-                
             # Use direct motor control for precise proportional response
             self.hardware.set_motor(m1_speed, m2_speed, m3_speed, m4_speed)
             
@@ -435,8 +449,20 @@ class SimplifiedYahboomDriver(Node):
                 
                 self.hardware.set_motor(m1_speed, m2_speed, m3_speed, m4_speed)
             else:
-                # Ensure robot stops when no movement is requested
-                self.hardware.set_motor(0, 0, 0, 0)
+                # Ensure robot stops immediately when no movement is requested
+                try:
+                    # First set motors to zero
+                    self.hardware.set_motor(0, 0, 0, 0)
+                    # Then use reset_car_state for immediate braking/parking if enabled
+                    # Only call reset_car_state occasionally to avoid overwhelming the hardware
+                    if self.use_immediate_braking:
+                        if not hasattr(self, '_last_reset_time'):
+                            self._last_reset_time = 0
+                        if time.time() - self._last_reset_time > 0.1:  # Reset every 100ms when stopped
+                            self.hardware.reset_car_state()
+                            self._last_reset_time = time.time()
+                except Exception as e:
+                    self.get_logger().warn(f"⚠️ Failed to execute control loop stop: {e}")
                 
         except Exception as e:
             self.get_logger().warn(f"⚠️ Control loop error: {e}")
@@ -464,20 +490,10 @@ class SimplifiedYahboomDriver(Node):
             self.get_logger().warn(f"⚠️ Command velocity debug failed: {e}")
             
     def _log_cmd_vel_debug(self):
-        """Log command velocity debug information"""
+        """Log simplified command velocity debug information"""
         vx, vy, vz = self.last_cmd_vel
         if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(vz) > 0.01:  # Only log when moving
-            # Calculate hardware values for logging
-            max_hardware_speed = 100.0
-            vx_hardware = (vx / self.max_linear_velocity) * max_hardware_speed
-            vy_hardware = (vy / self.max_linear_velocity) * max_hardware_speed  
-            vz_hardware = (vz / self.max_angular_velocity) * max_hardware_speed
-            
-            self.get_logger().info("🚿 PROPORTIONAL VELOCITY CONTROL DEBUG:")
-            self.get_logger().info(f"  Calibrated cmd_vel: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
-            self.get_logger().info(f"  Hardware values: vx={vx_hardware:.1f}, vy={vy_hardware:.1f}, vz={vz_hardware:.1f}")
-            self.get_logger().info(f"  Base scale: {self.base_velocity_scale:.3f}")
-            self.get_logger().info(f"  Fine-tune scales: X={self.velocity_scale_x:.3f}, Y={self.velocity_scale_y:.3f}, Z={self.velocity_scale_z:.3f}")
+            self.get_logger().info(f"ACTIVE_CMD_VEL: vx={vx:.3f}, vy={vy:.3f}, vz={vz:.3f}")
     
     def publish_sensor_data(self):
         """Publish sensor data and odometry"""
@@ -509,6 +525,25 @@ class SimplifiedYahboomDriver(Node):
             m1, m2, m3, m4 = self.hardware.get_motor_encoder()
             raw_encoders = [m1, m2, m3, m4]
             encoder_counts = [raw_encoders[i] for i in self.ENCODER_TO_WHEEL_MAP]  # Map to FL, FR, RL, RR
+            
+            # Calculate individual wheel speeds for calibration debugging BEFORE updating odometry
+            current_time = time.time()
+            dt = current_time - self.kinematics.prev_time
+            if dt > 0 and self.kinematics.initialized:
+                # Calculate change in encoder counts
+                delta_encoders = [
+                    encoder_counts[i] - self.kinematics.prev_encoders[i] 
+                    for i in range(4)
+                ]
+                # Convert to wheel velocities (rad/s)
+                wheel_speeds = [delta * self.kinematics.counts_to_meters / (dt * self.wheel_radius) for delta in delta_encoders]
+                
+                # Log wheel speeds for calibration (every 5th cycle to avoid spam)
+                if not hasattr(self, '_speed_log_count'):
+                    self._speed_log_count = 0
+                self._speed_log_count += 1
+                if self._speed_log_count % 5 == 0:
+                    self.get_logger().info(f"WHEEL_SPEEDS: FL={wheel_speeds[0]:.2f}, FR={wheel_speeds[1]:.2f}, RL={wheel_speeds[2]:.2f}, RR={wheel_speeds[3]:.2f} rad/s")
             
             # Update odometry
             x, y, theta, vx, vy, vtheta = self.kinematics.update_odometry(encoder_counts)
@@ -675,16 +710,17 @@ class SimplifiedYahboomDriver(Node):
             self.get_logger().warn(f"⚠️ Buzzer control failed: {e}")
         
     def destroy_node(self):
-        """Clean shutdown"""
+        """Clean shutdown with immediate motor braking"""
         self.get_logger().info("🛑 Shutting down simplified velocity driver")
         if self.hardware is not None:
             try:
-                # Stop all motors
+                # Stop all motors immediately
                 self.last_cmd_vel = [0.0, 0.0, 0.0]
-                self.hardware.set_car_motion(0, 0, 0)
-                self.hardware.reset_car_state()
-            except:
-                pass
+                self.hardware.set_motor(0, 0, 0, 0)  # Direct motor stop
+                self.hardware.reset_car_state()      # Engage braking/parking
+                self.get_logger().info("🛑 Motors stopped and braked")
+            except Exception as e:
+                self.get_logger().warn(f"⚠️ Error during shutdown motor stop: {e}")
         super().destroy_node()
 
 
