@@ -1,5 +1,5 @@
-# ZED2i VI-SLAM Configuration
-# Phase 1: Basic positional tracking and TF setup
+# ZED2i VI-SLAM Configuration  
+# Phase 4: Spatial mapping and loop closure enabled
 # File: src/robot_bringup/config/zed_vi_slam_config.yaml
 
 /**:
@@ -36,9 +36,9 @@
       depth_min_range: 0.3        # 30cm minimum depth
       imu_fusion: true            # Enable IMU fusion for VI-SLAM
       
-      # Area memory for relocalization (disabled initially for Phase 1)
-      area_memory: false
-      area_memory_db_path: ""
+      # Area memory for relocalization - PHASE 4 ENABLED
+      area_memory: true
+      area_memory_db_path: "/tmp/zed_area_memory.area"
       
     # Depth parameters optimized for navigation
     depth:
@@ -75,9 +75,13 @@
     bt:
       bt_enabled: false
       
-    # Spatial mapping for Phase 4 (disabled for Phase 1)
+    # Spatial mapping for Phase 4 - ENABLED for real-time mapping
     mapping:
-      mapping_enabled: false
-      resolution: 0.05
-      max_mapping_range: 15.0
-      fused_point_cloud_freq: 1.0
+      mapping_enabled: true
+      resolution: 0.05              # 5cm resolution for detailed mapping
+      max_mapping_range: 15.0       # 15 meter mapping range
+      fused_point_cloud_freq: 2.0   # 2Hz point cloud publishing for performance
+      
+      # Additional mapping parameters for Phase 4
+      map_publish_freq: 1.0         # 1Hz map publishing rate
+      save_map_on_shutdown: true    # Auto-save map when shutting down
