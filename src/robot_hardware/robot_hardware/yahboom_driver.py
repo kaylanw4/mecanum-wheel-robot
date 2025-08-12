@@ -8,6 +8,8 @@ import sys
 import math
 import time
 import threading
+import glob
+import serial
 from math import pi, sin, cos, atan2, sqrt
 from time import sleep
 
@@ -25,6 +27,44 @@ from scipy.spatial.transform import Rotation as R
 from Rosmaster_Lib import Rosmaster
 
 
+def find_yahboom_port():
+    """
+    Automatically detect Yahboom robot USB port
+    Returns the first available port that looks like a Yahboom device
+    """
+    # Common USB serial port patterns
+    possible_ports = []
+    
+    # Check for ttyUSB* ports (most common)
+    possible_ports.extend(glob.glob('/dev/ttyUSB*'))
+    
+    # Check for ttyACM* ports (alternative)  
+    possible_ports.extend(glob.glob('/dev/ttyACM*'))
+    
+    # Sort ports to prioritize ttyUSB0, then ttyUSB1, etc.
+    possible_ports.sort()
+    
+    # Print available ports for debugging
+    if possible_ports:
+        print(f"🔍 Checking USB ports: {possible_ports}")
+    else:
+        print("⚠️  No USB serial ports found")
+    
+    for port in possible_ports:
+        try:
+            # Try to open the port briefly to check if it exists and is accessible
+            with serial.Serial(port, 115200, timeout=1):
+                # Port is accessible
+                print(f"✅ Found accessible port: {port}")
+                return port
+        except (serial.SerialException, PermissionError, FileNotFoundError) as e:
+            # Port not accessible or doesn't exist, try next one
+            print(f"❌ Port {port} not accessible: {e}")
+            continue
+    
+    # If no ports found, return default
+    print("⚠️  No accessible ports found, defaulting to /dev/ttyUSB0")
+    return '/dev/ttyUSB0'
 
 
 class MecanumKinematics:
@@ -175,12 +215,14 @@ class SimplifiedYahboomDriver(Node):
         self.get_logger().info("🚀 Starting Simplified Yahboom Driver with Direct Velocity Control...")
         
         # Declare parameters
-        self.declare_parameter('serial_port', '/dev/ttyUSB0')
+        self.declare_parameter('serial_port', '/dev/ttyUSB0')  # Auto-detects if default
+        self.declare_parameter('auto_detect_port', True)  # Enable/disable auto-detection
         self.declare_parameter('serial_baudrate', 115200)
         self.declare_parameter('imu_frame_id', 'imu_link')
         self.declare_parameter('base_frame_id', 'base_link')
         self.declare_parameter('odom_frame_id', 'odom')
         self.declare_parameter('publish_odom_tf', True)
+        self.declare_parameter('publish_odom', True)  # Allow disabling wheel odometry for VI-SLAM
         
         # Robot physical parameters
         self.declare_parameter('wheel_radius', 0.0395)  
@@ -213,12 +255,26 @@ class SimplifiedYahboomDriver(Node):
         self.declare_parameter('use_immediate_braking', True)  # Use reset_car_state for immediate stops  
         
         # Get parameters
-        self.serial_port = self.get_parameter('serial_port').value
+        configured_port = self.get_parameter('serial_port').value
+        auto_detect = self.get_parameter('auto_detect_port').value
+        
+        # Auto-detect port if enabled and (default is specified or port doesn't exist)
+        if auto_detect and (configured_port == '/dev/ttyUSB0' or not self._port_exists(configured_port)):
+            detected_port = find_yahboom_port()
+            if detected_port != configured_port:
+                self.get_logger().info(f'🔍 Auto-detected Yahboom port: {detected_port} (configured: {configured_port})')
+            self.serial_port = detected_port
+        else:
+            self.serial_port = configured_port
+            if not auto_detect:
+                self.get_logger().info(f'🔧 Using configured port: {configured_port} (auto-detect disabled)')
+        self.auto_detect_port = auto_detect
         self.serial_baudrate = self.get_parameter('serial_baudrate').value
         self.imu_frame_id = self.get_parameter('imu_frame_id').value
         self.base_frame_id = self.get_parameter('base_frame_id').value
         self.odom_frame_id = self.get_parameter('odom_frame_id').value
         self.publish_odom_tf = self.get_parameter('publish_odom_tf').value
+        self.publish_odom = self.get_parameter('publish_odom').value
         
         # Robot physical parameters
         self.wheel_radius = self.get_parameter('wheel_radius').value
@@ -306,6 +362,14 @@ class SimplifiedYahboomDriver(Node):
         
         # Initialize hardware
         self.initialize_hardware()
+        
+    def _port_exists(self, port_path):
+        """Check if a serial port exists and is accessible"""
+        try:
+            with serial.Serial(port_path, 115200, timeout=1):
+                return True
+        except (serial.SerialException, PermissionError, FileNotFoundError):
+            return False
         
     def initialize_hardware(self):
         """Initialize hardware with proper PID setup"""
@@ -588,10 +652,11 @@ class SimplifiedYahboomDriver(Node):
             odom_msg.twist.covariance[7] = 0.001  # vy
             odom_msg.twist.covariance[35] = 0.01  # vyaw
             
-            # Publish odometry
-            self.odom_pub.publish(odom_msg)
+            # Publish odometry (only if enabled - disabled for VI-SLAM)
+            if self.publish_odom:
+                self.odom_pub.publish(odom_msg)
             
-            # Publish TF
+            # Publish TF (only if enabled - disabled for VI-SLAM)
             if self.publish_odom_tf:
                 t = TransformStamped()
                 t.header.stamp = timestamp.to_msg()
