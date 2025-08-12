@@ -12,8 +12,9 @@ enhanced_yahboom_driver:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     
-    # Publishing options
-    publish_odom_tf: true  # Set to true if not using robot_localization
+    # Publishing options - PHASE 3: ZED VI-SLAM is primary odometry source
+    publish_odom_tf: false  # ZED handles TF transforms  
+    publish_odom: false     # ZED provides odometry, wheels only for monitoring
     
     # Robot physical parameters
     wheel_radius: 0.0395  # 40mm wheels

@@ -1,20 +1,20 @@
 digraph G {
-"base_link" -> "front_left_wheel"[label=" Broadcaster: default_authority\nAverage rate: 15.199\nBuffer length: 5.0\nMost recent transform: 1754960154.775133\nOldest transform: 1754960149.774917\n"];
+"base_link" -> "front_left_wheel"[label=" Broadcaster: default_authority\nAverage rate: 10.392\nBuffer length: 5.004\nMost recent transform: 1754966850.035955\nOldest transform: 1754966845.032246\n"];
 "zed2i_camera_link" -> "base_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
-"base_link" -> "front_right_wheel"[label=" Broadcaster: default_authority\nAverage rate: 15.199\nBuffer length: 5.0\nMost recent transform: 1754960154.775133\nOldest transform: 1754960149.774917\n"];
-"base_link" -> "rear_left_wheel"[label=" Broadcaster: default_authority\nAverage rate: 15.199\nBuffer length: 5.0\nMost recent transform: 1754960154.775133\nOldest transform: 1754960149.774917\n"];
-"base_link" -> "rear_right_wheel"[label=" Broadcaster: default_authority\nAverage rate: 15.199\nBuffer length: 5.0\nMost recent transform: 1754960154.775133\nOldest transform: 1754960149.774917\n"];
+"base_link" -> "front_right_wheel"[label=" Broadcaster: default_authority\nAverage rate: 10.392\nBuffer length: 5.004\nMost recent transform: 1754966850.035955\nOldest transform: 1754966845.032246\n"];
+"base_link" -> "rear_left_wheel"[label=" Broadcaster: default_authority\nAverage rate: 10.392\nBuffer length: 5.004\nMost recent transform: 1754966850.035955\nOldest transform: 1754966845.032246\n"];
+"base_link" -> "rear_right_wheel"[label=" Broadcaster: default_authority\nAverage rate: 10.392\nBuffer length: 5.004\nMost recent transform: 1754966850.035955\nOldest transform: 1754966845.032246\n"];
 "base_link" -> "base_footprint"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 "base_link" -> "imu_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 "zed2i_camera_link" -> "zed2i_camera_center"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
-"odom" -> "zed2i_camera_link"[label=" Broadcaster: default_authority\nAverage rate: 30.198\nBuffer length: 5.033\nMost recent transform: 1754960154.762716\nOldest transform: 1754960149.72935\n"];
+"odom" -> "zed2i_camera_link"[label=" Broadcaster: default_authority\nAverage rate: 30.195\nBuffer length: 5.034\nMost recent transform: 1754966850.029469\nOldest transform: 1754966844.995604\n"];
 "zed2i_camera_center" -> "zed2i_left_camera_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 "zed2i_left_camera_frame" -> "zed2i_left_camera_optical_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 "zed2i_camera_center" -> "zed2i_right_camera_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 "zed2i_right_camera_frame" -> "zed2i_right_camera_optical_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
-"map" -> "odom"[label=" Broadcaster: default_authority\nAverage rate: 30.198\nBuffer length: 5.033\nMost recent transform: 1754960154.762716\nOldest transform: 1754960149.72935\n"];
+"map" -> "odom"[label=" Broadcaster: default_authority\nAverage rate: 30.195\nBuffer length: 5.034\nMost recent transform: 1754966850.029469\nOldest transform: 1754966844.995604\n"];
 edge [style=invis];
  subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
-"Recorded at time: 1754960154.862713"[ shape=plaintext ] ;
+"Recorded at time: 1754966850.1299512"[ shape=plaintext ] ;
 }->"map";
 }
