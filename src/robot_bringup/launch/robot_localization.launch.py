@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-ZED Mapping Mode Launch File - Industry Standard
-MAPPING PHASE: Fresh map creation with no area memory (prevents vertex conflicts)
-File: src/robot_bringup/launch/robot_mapping.launch.py
+ZED Localization Mode Launch File - Industry Standard
+LOCALIZATION PHASE: Use existing area memory for relocalization against saved map
+File: src/robot_bringup/launch/robot_localization.launch.py
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.actions import Node
@@ -20,13 +20,13 @@ def generate_launch_description():
     use_rviz_arg = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='Whether to launch RViz for mapping visualization'
+        description='Whether to launch RViz for localization visualization'
     )
     
     use_joystick_arg = DeclareLaunchArgument(
         'use_joystick',
-        default_value='true',
-        description='Whether to enable joystick control for mapping'
+        default_value='false',
+        description='Whether to enable joystick control during localization'
     )
     
     serial_port_arg = DeclareLaunchArgument(
@@ -41,11 +41,18 @@ def generate_launch_description():
         description='Name of the ZED2i camera'
     )
     
+    map_name_arg = DeclareLaunchArgument(
+        'map_name',
+        default_value='',
+        description='Name of saved map to load (e.g., "office_map", "warehouse_map"). If empty, uses default zed_area_memory.area'
+    )
+    
     # Get launch configurations
     use_rviz = LaunchConfiguration('use_rviz')
     use_joystick = LaunchConfiguration('use_joystick')
     serial_port = LaunchConfiguration('serial_port')
     camera_name = LaunchConfiguration('camera_name')
+    map_name = LaunchConfiguration('map_name')
     
     # Configuration files
     hardware_config = PathJoinSubstitution([
@@ -53,9 +60,9 @@ def generate_launch_description():
         'config', 'hardware.yaml'
     ])
     
-    zed_mapping_config = PathJoinSubstitution([
+    zed_localization_config = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'zed_mapping_config.yaml'
+        'config', 'zed_localization_config.yaml'
     ])
     
     # Robot description with VI-SLAM URDF
@@ -93,7 +100,7 @@ def generate_launch_description():
         }]
     )
     
-    # PS4 Controller for joy input (conditional)
+    # PS4 Controller for joy input (conditional - typically disabled for localization)
     joy_node = Node(
         package='joy',
         executable='joy_node',
@@ -115,7 +122,7 @@ def generate_launch_description():
         condition=IfCondition(use_joystick)
     )
     
-    # Yahboom hardware driver with DISABLED wheel odometry
+    # Yahboom hardware driver with DISABLED wheel odometry (ZED provides odometry)
     yahboom_driver = Node(
         package='robot_hardware',
         executable='yahboom_driver', 
@@ -132,12 +139,35 @@ def generate_launch_description():
         ]
     )
     
-    # Debug: Log the configuration being used
-    debug_config_info = LogInfo(
-        msg=['Using ZED Mapping config: ', zed_mapping_config]
+    # Map loading: Copy selected map to active area memory location
+    load_map_process = ExecuteProcess(
+        cmd=[
+            'bash', '-c',
+            [
+                'if [ "', map_name, '" != "" ]; then ',
+                    'echo "🗺️ Loading map: ', map_name, '"; ',
+                    'if [ -f "/tmp/zed_maps/', map_name, '.area" ]; then ',
+                        'cp "/tmp/zed_maps/', map_name, '.area" "/tmp/zed_area_memory.area" && ',
+                        'echo "✅ Map loaded: ', map_name, '.area"; ',
+                    'else ',
+                        'echo "❌ Map not found: /tmp/zed_maps/', map_name, '.area"; ',
+                        'echo "Available maps:"; ls -la /tmp/zed_maps/*.area 2>/dev/null || echo "No maps found"; ',
+                        'exit 1; ',
+                    'fi; ',
+                'else ',
+                    'echo "ℹ️ Using default area memory (if exists)"; ',
+                'fi'
+            ]
+        ],
+        output='screen'
     )
     
-    # ZED2i Camera with SPATIAL MAPPING enabled
+    # Debug: Log the configuration being used
+    debug_config_info = LogInfo(
+        msg=['Using ZED Localization config: ', zed_localization_config, ' with map: ', map_name]
+    )
+    
+    # ZED2i Camera with LOCALIZATION enabled (uses existing area memory)
     zed_camera_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -149,14 +179,14 @@ def generate_launch_description():
             'camera_model': 'zed2i',
             'camera_name': camera_name,
             'publish_urdf': 'false',          # Robot URDF already includes camera
-            'ros_params_override_path': zed_mapping_config,
+            'ros_params_override_path': zed_localization_config,
         }.items()
     )
     
-    # RViz with mapping visualization (conditional)
+    # RViz with localization visualization (conditional)
     rviz_config_file = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'mapping_view.rviz'
+        'config', 'robot_with_zed2i.rviz'  # Use standard robot view for localization
     ])
     
     rviz_node = Node(
@@ -177,6 +207,10 @@ def generate_launch_description():
         use_joystick_arg,
         serial_port_arg,
         camera_name_arg,
+        map_name_arg,
+        
+        # Map loading process (must run first)
+        load_map_process,
         
         # Debug information
         debug_config_info,
@@ -186,11 +220,11 @@ def generate_launch_description():
         joint_state_publisher, 
         yahboom_driver,
         
-        # Joystick control (conditional)
+        # Joystick control (conditional - typically disabled for localization)
         joy_node,
         yahboom_joystick,
         
-        # ZED MAPPING (primary odometry + spatial mapping)
+        # ZED LOCALIZATION (uses existing area memory)
         zed_camera_launch,
         
         # Visualization

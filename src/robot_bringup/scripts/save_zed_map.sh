@@ -1,17 +1,29 @@
 #!/bin/bash
-# ZED Map Saving Script for Phase 4
+# ZED Map Saving Script - Industry Standard Multi-Map Support
 # File: src/robot_bringup/scripts/save_zed_map.sh
+# Usage: ./save_zed_map.sh [map_name]
+# Example: ./save_zed_map.sh office_map
 
 set -e
 
-# Configuration
+# Parse command line arguments
+CUSTOM_MAP_NAME="$1"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 MAP_DIR="/tmp/zed_maps"
-MAP_NAME="zed_map_${TIMESTAMP}"
+
+# Determine map name
+if [ -n "$CUSTOM_MAP_NAME" ]; then
+    MAP_NAME="$CUSTOM_MAP_NAME"
+    echo "🗺️ Using custom map name: $MAP_NAME"
+else
+    MAP_NAME="zed_map_${TIMESTAMP}"
+    echo "🗺️ Using timestamp-based map name: $MAP_NAME"
+fi
+
 AREA_MEMORY_PATH="/tmp/zed_area_memory.area"
 
-echo "🗺️  ZED Map Saving Script - Phase 4"
-echo "======================================"
+echo "🗺️  ZED Map Saving Script - Industry Standard"
+echo "=============================================="
 
 # Create map directory if it doesn't exist
 mkdir -p "${MAP_DIR}"
@@ -28,6 +40,19 @@ if ! ros2 node list | grep -q "zed_node"; then
 fi
 
 echo "🎯 ZED node detected - proceeding with map save..."
+
+# Check if map already exists and ask for confirmation
+if [ -f "${MAP_DIR}/${MAP_NAME}.area" ]; then
+    echo "⚠️  Map '${MAP_NAME}' already exists!"
+    echo "   Existing: ${MAP_DIR}/${MAP_NAME}.area"
+    echo -n "   Overwrite? (y/N): "
+    read -r response
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        echo "❌ Map save cancelled"
+        exit 1
+    fi
+    echo "🔄 Overwriting existing map..."
+fi
 
 # Save area memory database (for relocalization)
 if [ -f "${AREA_MEMORY_PATH}" ]; then
@@ -85,8 +110,19 @@ echo "📂 Saved files:"
 ls -la "${MAP_DIR}/${MAP_NAME}"*
 
 echo ""
-echo "📖 To load this map later:"
-echo "   1. cp ${MAP_DIR}/${MAP_NAME}.area /tmp/zed_area_memory.area"
-echo "   2. ros2 launch robot_bringup robot_mapping.launch.py"
+echo "📖 To load this map for localization:"
+if [ -n "$CUSTOM_MAP_NAME" ]; then
+    echo "   ros2 launch robot_bringup robot_localization.launch.py map_name:=${MAP_NAME}"
+else
+    echo "   # Using map name:"
+    echo "   ros2 launch robot_bringup robot_localization.launch.py map_name:=${MAP_NAME}"
+    echo ""
+    echo "   # Or copy manually:"
+    echo "   cp ${MAP_DIR}/${MAP_NAME}.area /tmp/zed_area_memory.area"
+    echo "   ros2 launch robot_bringup robot_localization.launch.py"
+fi
+echo ""
+echo "📋 Available maps:"
+ls -la "${MAP_DIR}"/*.area 2>/dev/null | awk '{print "   " $9}' | sed 's|.*/||' | sed 's|\.area$||'
 echo ""
 echo "✨ ZED map saving completed!"

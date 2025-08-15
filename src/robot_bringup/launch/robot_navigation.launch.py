@@ -1,165 +1,180 @@
-# ===== robot_navigation.launch.py =====
 #!/usr/bin/env python3
 """
-Complete robot navigation launch file
+ZED Navigation Mode Launch File - Industry Standard
+NAVIGATION PHASE: Full nav2 stack with ZED localization for autonomous navigation
 File: src/robot_bringup/launch/robot_navigation.launch.py
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterValue
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
     
     # Launch arguments
-    use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='false',
-        description='Use simulation time'
-    )
-    
-    map_file_arg = DeclareLaunchArgument(
-        'map',
-        default_value=PathJoinSubstitution([
-            FindPackageShare('robot_bringup'),
-            'maps', 'simple_room.yaml'
-        ]),
-        description='Map file to use for navigation'
-    )
-    
     use_rviz_arg = DeclareLaunchArgument(
         'use_rviz',
         default_value='true',
-        description='Whether to launch RViz'
+        description='Whether to launch RViz for navigation visualization'
+    )
+    
+    use_joystick_arg = DeclareLaunchArgument(
+        'use_joystick',
+        default_value='true',
+        description='Whether to enable joystick control during navigation'
+    )
+    
+    serial_port_arg = DeclareLaunchArgument(
+        'serial_port',
+        default_value='/dev/ttyUSB0',
+        description='Serial port for Yahboom hardware'
+    )
+    
+    camera_name_arg = DeclareLaunchArgument(
+        'camera_name',
+        default_value='zed2i',
+        description='Name of the ZED2i camera'
     )
     
     # Get launch configurations
-    use_sim_time = LaunchConfiguration('use_sim_time')
-    map_file = LaunchConfiguration('map')
     use_rviz = LaunchConfiguration('use_rviz')
+    use_joystick = LaunchConfiguration('use_joystick')
+    serial_port = LaunchConfiguration('serial_port')
+    camera_name = LaunchConfiguration('camera_name')
     
-    # Navigation configuration file
-    nav2_config = PathJoinSubstitution([
+    # Configuration files
+    hardware_config = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'nav2_params.yaml'
+        'config', 'hardware.yaml'
     ])
     
-    # Robot bringup (hardware + description)
-    robot_bringup = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
+    zed_navigation_config = PathJoinSubstitution([
+        FindPackageShare('robot_bringup'),
+        'config', 'zed_navigation_config.yaml'
+    ])
+    
+    # Robot description with VI-SLAM URDF
+    robot_description_content = ParameterValue(
+        Command(['xacro ', 
             PathJoinSubstitution([
                 FindPackageShare('robot_bringup'),
-                'launch', 'robot_bringup.launch.py'
+                'urdf', 'yahboomcar_vi_slam.urdf.xacro'
+            ]),
+            ' camera_name:=', camera_name
+        ]),
+        value_type=str
+    )
+    
+    # Robot state publisher
+    robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{
+            'robot_description': robot_description_content,
+            'use_sim_time': False
+        }]
+    )
+    
+    # Joint state publisher
+    joint_state_publisher = Node(
+        package='joint_state_publisher',
+        executable='joint_state_publisher',
+        name='joint_state_publisher',
+        output='screen',
+        parameters=[{
+            'use_sim_time': False
+        }]
+    )
+    
+    # PS4 Controller for joy input (conditional - for manual override during navigation)
+    joy_node = Node(
+        package='joy',
+        executable='joy_node',
+        name='joy_node',
+        parameters=[{
+            'device_id': 0,
+            'deadzone': 0.3,
+            'autorepeat_rate': 20.0,
+        }],
+        condition=IfCondition(use_joystick)
+    )
+    
+    # Enhanced Yahboom joystick controller (conditional - for manual override)
+    yahboom_joystick = Node(
+        package='robot_teleop',
+        executable='yahboom_joystick',
+        name='joystick_controller',
+        output='screen',
+        condition=IfCondition(use_joystick)
+    )
+    
+    # Yahboom hardware driver - FULL CONTROL MODE for navigation
+    yahboom_driver = Node(
+        package='robot_hardware',
+        executable='yahboom_driver', 
+        name='yahboom_hardware_driver',
+        output='screen',
+        parameters=[
+            hardware_config,
+            {
+                'serial_port': serial_port,
+                'publish_odom_tf': False,   # ZED handles primary odometry
+                'publish_odom': True,       # Publish wheel odometry for sensor fusion
+                'use_sim_time': False
+            }
+        ]
+    )
+    
+    # Debug: Log the configuration being used
+    debug_config_info = LogInfo(
+        msg=['Using ZED Navigation config: ', zed_navigation_config]
+    )
+    
+    # ZED2i Camera with NAVIGATION mode (localization + obstacle detection)
+    zed_camera_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('zed_wrapper'),
+                'launch', 'zed_camera.launch.py'
             ])
         ]),
         launch_arguments={
-            'use_rviz': 'false',  # We'll launch RViz separately with nav config
+            'camera_model': 'zed2i',
+            'camera_name': camera_name,
+            'publish_urdf': 'false',          # Robot URDF already includes camera
+            'ros_params_override_path': zed_navigation_config,
         }.items()
     )
     
-    # Nav2 lifecycle manager
-    lifecycle_manager = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='lifecycle_manager_navigation',
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'autostart': True,
-            'node_names': [
-                'map_server',
-                'amcl',
-                'controller_server',
-                'planner_server',
-                'behavior_server',
-                'bt_navigator',
-                'waypoint_follower',
-                'velocity_smoother'
-            ]
-        }]
+    # Depth image to laser scan conversion for nav2 obstacle avoidance
+    depthimage_to_laserscan = Node(
+        package='depthimage_to_laserscan',
+        executable='depthimage_to_laserscan_node',
+        name='depthimage_to_laserscan',
+        parameters=[
+            PathJoinSubstitution([
+                FindPackageShare('robot_bringup'),
+                'config', 'zed_depth_to_scan.yaml'
+            ])
+        ],
+        remappings=[
+            ('depth', '/zed2i/zed_node/depth/depth_registered'),
+            ('depth_camera_info', '/zed2i/zed_node/depth/camera_info'),
+            ('scan', '/scan')
+        ]
     )
     
-    # Map server
-    map_server = Node(
-        package='nav2_map_server',
-        executable='map_server',
-        name='map_server',
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'yaml_filename': map_file
-        }]
-    )
-    
-    # AMCL (Adaptive Monte Carlo Localization)
-    amcl = Node(
-        package='nav2_amcl',
-        executable='amcl',
-        name='amcl',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # Controller server
-    controller_server = Node(
-        package='nav2_controller',
-        executable='controller_server',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # Planner server
-    planner_server = Node(
-        package='nav2_planner',
-        executable='planner_server',
-        name='planner_server',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # Behavior server
-    behavior_server = Node(
-        package='nav2_behaviors',
-        executable='behavior_server',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # BT Navigator
-    bt_navigator = Node(
-        package='nav2_bt_navigator',
-        executable='bt_navigator',
-        name='bt_navigator',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # Waypoint follower
-    waypoint_follower = Node(
-        package='nav2_waypoint_follower',
-        executable='waypoint_follower',
-        name='waypoint_follower',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # Velocity smoother
-    velocity_smoother = Node(
-        package='nav2_velocity_smoother',
-        executable='velocity_smoother',
-        name='velocity_smoother',
-        output='screen',
-        parameters=[nav2_config]
-    )
-    
-    # RViz with navigation configuration
+    # RViz with navigation visualization (conditional)  
     rviz_config_file = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'nav2_view.rviz'
+        'config', 'robot_with_zed2i.rviz'  # Use existing config for now
     ])
     
     rviz_node = Node(
@@ -169,99 +184,54 @@ def generate_launch_description():
         output='screen',
         arguments=['-d', rviz_config_file],
         parameters=[{
-            'use_sim_time': use_sim_time
+            'use_sim_time': False
         }],
         condition=IfCondition(use_rviz)
     )
     
+    # TODO: Add nav2 launch file inclusion here
+    # nav2_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource([
+    #         PathJoinSubstitution([
+    #             FindPackageShare('nav2_bringup'),
+    #             'launch', 'navigation_launch.py'
+    #         ])
+    #     ]),
+    #     launch_arguments={
+    #         'use_sim_time': 'false',
+    #         'params_file': nav2_params_file,
+    #         'map': map_file,
+    #     }.items()
+    # )
+    
     return LaunchDescription([
         # Arguments
-        use_sim_time_arg,
-        map_file_arg,
         use_rviz_arg,
+        use_joystick_arg,
+        serial_port_arg,
+        camera_name_arg,
+        
+        # Debug information
+        debug_config_info,
         
         # Robot system
-        robot_bringup,
+        robot_state_publisher,
+        joint_state_publisher, 
+        yahboom_driver,
         
-        # Navigation nodes
-        lifecycle_manager,
-        map_server,
-        amcl,
-        controller_server,
-        planner_server,
-        behavior_server,
-        bt_navigator,
-        waypoint_follower,
-        velocity_smoother,
+        # Joystick control (conditional - for manual override)
+        joy_node,
+        yahboom_joystick,
+        
+        # ZED NAVIGATION (localization + obstacle detection)
+        zed_camera_launch,
+        
+        # Depth to laser scan for nav2 obstacle avoidance
+        depthimage_to_laserscan,
         
         # Visualization
         rviz_node,
-    ])
-
-
-# ===== odometry_test.launch.py =====
-#!/usr/bin/env python3
-"""
-Odometry accuracy testing launch file
-File: src/robot_bringup/launch/odometry_test.launch.py
-"""
-
-from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-
-def generate_launch_description():
-    
-    use_rviz_arg = DeclareLaunchArgument(
-        'use_rviz',
-        default_value='true',
-        description='Whether to launch RViz for odometry visualization'
-    )
-    
-    use_rviz = LaunchConfiguration('use_rviz')
-    
-    # Robot bringup with enhanced odometry
-    robot_bringup = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            PathJoinSubstitution([
-                FindPackageShare('robot_bringup'),
-                'launch', 'robot_bringup.launch.py'
-            ])
-        ]),
-        launch_arguments={
-            'use_rviz': 'false',
-        }.items()
-    )
-    
-    # RViz for odometry visualization
-    rviz_config_file = PathJoinSubstitution([
-        FindPackageShare('robot_bringup'), 
-        'config', 'odometry_view.rviz'
-    ])
-    
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config_file],
-        condition=IfCondition(use_rviz)
-    )
-    
-    # Odometry test node
-    odom_test_node = Node(
-        package='robot_bringup',
-        executable='odometry_test',
-        name='odometry_test',
-        output='screen'
-    )
-    
-    return LaunchDescription([
-        use_rviz_arg,
-        robot_bringup,
-        rviz_node,
-        # odom_test_node,  # Uncomment when you create the test node
+        
+        # TODO: Add nav2 launch when ready
+        # nav2_launch,
     ])

@@ -1,0 +1,83 @@
+# ZED2i Localization Configuration - Industry Standard
+# Phase: LOCALIZATION MODE (Use existing area memory for relocalization)
+# File: src/robot_bringup/config/zed_localization_config.yaml
+
+/**:
+  ros__parameters:
+    # General parameters
+    general:
+      camera_model: 'zed2i'
+      camera_name: 'zed2i'
+      grab_resolution: 'HD720'    # Same as mapping for consistency
+      grab_frame_rate: 30
+      
+    # Position tracking parameters - LOCALIZATION MODE
+    pos_tracking:
+      pos_tracking_enabled: true
+      publish_tf: true            # ZED publishes TF transforms for localization
+      publish_map_tf: true        # ZED publishes map->odom transform
+      map_frame: 'map'
+      odometry_frame: 'odom'
+      base_frame: 'zed2i_camera_link'  # ZED tracks camera frame
+      
+      # Camera frame reference
+      camera_frame: 'zed2i_camera_center'
+      
+      # Localization coordinate system - use existing map frame
+      initial_world_transform: [0,0,0, 0,0,0]  # Will be overridden by area memory
+      set_gravity_as_origin: true              # Consistent with mapping
+      set_floor_as_origin: false
+      
+      # Localization quality settings
+      depth_min_range: 0.3        # 30cm minimum depth
+      imu_fusion: true            # Enable IMU fusion for VI-SLAM
+      
+      # LOCALIZATION MODE: ENABLE AREA MEMORY for relocalization
+      area_memory: true
+      area_memory_db_path: "/tmp/zed_area_memory.area"  # Load existing map
+      
+    # Depth parameters - optimized for localization
+    depth:
+      min_depth: 0.3
+      max_depth: 15.0
+      depth_mode: 'PERFORMANCE'   # Faster for real-time localization
+      depth_stabilization: 1      # Reduce noise
+      openni_depth_mode: false
+      
+    # Sensors configuration
+    sensors:
+      publish_imu_tf: true        # Publish IMU transform
+      sensors_timestamp_sync: false
+      
+    # Video parameters optimized for localization performance  
+    video:
+      brightness: 4
+      contrast: 4
+      hue: 0
+      saturation: 4
+      sharpness: 4
+      gamma: 8
+      auto_exposure_gain: true
+      exposure: 100
+      gain: 100
+      auto_whitebalance: true
+      whitebalance_temperature: 42
+      
+    # Object detection disabled for performance
+    od:
+      od_enabled: false
+      
+    # Body tracking disabled for performance  
+    bt:
+      bt_enabled: false
+      
+    # Spatial mapping - DISABLED for localization (use existing map)
+    mapping:
+      mapping_enabled: false      # No new mapping during localization
+      resolution: 0.05            # Keep consistent with mapping
+      max_mapping_range: 15.0     # Keep consistent
+      fused_point_cloud_freq: 0.0 # Disable fused cloud publishing
+      
+      # Localization-specific parameters
+      map_publish_freq: 0.0       # Disable map publishing (use existing)
+      save_map_on_shutdown: false # Don't save during localization

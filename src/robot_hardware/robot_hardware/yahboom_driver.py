@@ -603,11 +603,11 @@ class SimplifiedYahboomDriver(Node):
                 wheel_speeds = [delta * self.kinematics.counts_to_meters / (dt * self.wheel_radius) for delta in delta_encoders]
                 
                 # Log wheel speeds for calibration (every 5th cycle to avoid spam)
-                if not hasattr(self, '_speed_log_count'):
-                    self._speed_log_count = 0
-                self._speed_log_count += 1
-                if self._speed_log_count % 5 == 0:
-                    self.get_logger().info(f"WHEEL_SPEEDS: FL={wheel_speeds[0]:.2f}, FR={wheel_speeds[1]:.2f}, RL={wheel_speeds[2]:.2f}, RR={wheel_speeds[3]:.2f} rad/s")
+                # if not hasattr(self, '_speed_log_count'):
+                #     self._speed_log_count = 0
+                # self._speed_log_count += 1
+                # if self._speed_log_count % 5 == 0:
+                #     self.get_logger().info(f"WHEEL_SPEEDS: FL={wheel_speeds[0]:.2f}, FR={wheel_speeds[1]:.2f}, RL={wheel_speeds[2]:.2f}, RR={wheel_speeds[3]:.2f} rad/s")
             
             # Update odometry
             x, y, theta, vx, vy, vtheta = self.kinematics.update_odometry(encoder_counts)
