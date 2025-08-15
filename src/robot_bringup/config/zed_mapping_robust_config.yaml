@@ -1,0 +1,88 @@
+# ZED2i Robust Mapping Configuration - Enhanced Preprocessing
+# Phase: MAPPING MODE (Fresh map creation with enhanced filtering)
+# File: src/robot_bringup/config/zed_mapping_robust_config.yaml
+
+/**:
+  ros__parameters:
+    # General parameters
+    general:
+      camera_model: 'zed2i'
+      camera_name: 'zed2i'
+      grab_resolution: 'HD720'    # Good balance of quality vs performance on Jetson
+      grab_frame_rate: 30
+      
+    # Position tracking parameters - FRESH MAPPING MODE
+    pos_tracking:
+      pos_tracking_enabled: true
+      publish_tf: true            # ZED publishes TF transforms for mapping
+      publish_map_tf: true        # ZED publishes map->odom transform
+      map_frame: 'map'
+      odometry_frame: 'odom'
+      base_frame: 'zed2i_camera_link'  # ZED tracks camera frame
+      
+      # Camera frame reference
+      camera_frame: 'zed2i_camera_center'
+      
+      # Fresh mapping coordinate system setup  
+      initial_world_transform: [0,0,0, 0,0,0]  # [x,y,z, roll,pitch,yaw] start at origin
+      set_gravity_as_origin: true              # Use gravity to establish world frame
+      set_floor_as_origin: false               # Don't assume floor level
+      
+      # Fresh mapping quality settings
+      depth_min_range: 0.3        # 30cm minimum depth
+      imu_fusion: true            # Enable IMU fusion for VI-SLAM
+      
+      # MAPPING MODE: NO AREA MEMORY - Fresh SLAM graph
+      area_memory: false
+      area_memory_db_path: ""     # No path for fresh mapping
+      
+    # Enhanced depth parameters for robust mapping
+    depth:
+      min_depth: 0.3
+      max_depth: 15.0
+      depth_mode: 'ULTRA'         # Best quality for mapping (enhanced from NEURAL_LIGHT)
+      depth_stabilization: 50     # Enhanced temporal stabilization (up from 30)
+      openni_depth_mode: false
+      
+      # Enhanced confidence filtering for robust mapping
+      depth_confidence: 98        # Higher confidence threshold (up from 95)
+      depth_texture_conf: 98      # Higher texture confidence (up from 100)
+      remove_saturated_areas: true # Remove reflective surfaces (mirrors, glass)
+      
+    # Sensors configuration
+    sensors:
+      publish_imu_tf: true        # Publish IMU transform
+      sensors_timestamp_sync: false
+      
+    # Video parameters optimized for Jetson performance  
+    video:
+      brightness: 4
+      contrast: 4
+      hue: 0
+      saturation: 4
+      sharpness: 4
+      gamma: 8
+      auto_exposure_gain: true
+      exposure: 100
+      gain: 100
+      auto_whitebalance: true
+      whitebalance_temperature: 42
+      
+    # Object detection disabled for performance
+    od:
+      od_enabled: false
+      
+    # Body tracking disabled for performance  
+    bt:
+      bt_enabled: false
+      
+    # Enhanced spatial mapping - Higher frequency for robust mapping
+    mapping:
+      mapping_enabled: true
+      resolution: 0.05              # 5cm resolution for detailed mapping
+      max_mapping_range: 15.0       # 15 meter mapping range
+      fused_point_cloud_freq: 10.0  # 10Hz point cloud publishing (up from 2.0Hz)
+      
+      # Enhanced mapping-specific parameters
+      map_publish_freq: 2.0         # 2Hz map publishing rate (up from 1.0Hz)
+      save_map_on_shutdown: false   # Don't auto-save during mapping (use script instead)
