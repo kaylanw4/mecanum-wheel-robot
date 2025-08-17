@@ -17,8 +17,8 @@ A ROS2-based mecanum wheel robot using NVIDIA Jetson Orin Nano and Yahboom hardw
 - **OS**: Ubuntu 22.04 (JetPack 6.2.1)
 - **ROS2**: Humble Hawksbill
 - **Hardware Interface**: Yahboom Rosmaster_Lib integration
-- **Vision**: ZED2i camera with SLAM capabilities
-- **Navigation**: SLAM mapping and localization support
+- **Vision**: ZED2i camera with Visual-Inertial SLAM (VI-SLAM) capabilities
+- **Navigation**: VI-SLAM mapping, localization, and autonomous navigation support
 
 ## Package Structure
 
@@ -60,8 +60,14 @@ ros2 launch robot_bringup robot_bringup.launch.py use_rviz:=true
 # Launch with ZED2i camera integration
 ros2 launch robot_bringup robot_with_zed2i.launch.py
 
-# Launch SLAM mapping mode
-ros2 launch robot_bringup robot_slam.launch.py
+# Launch Visual-Inertial SLAM (VI-SLAM) mode - Primary
+ros2 launch robot_bringup robot_vi_slam.launch.py
+
+# Launch VI-SLAM mapping mode (fresh map creation)
+ros2 launch robot_bringup robot_mapping.launch.py
+
+# Launch VI-SLAM localization mode (use existing map)
+ros2 launch robot_bringup robot_localization.launch.py map_name:=office_map
 ```
 
 ### PS4 Controller
@@ -80,18 +86,20 @@ ros2 launch robot_bringup robot_slam.launch.py
 - Enhanced joystick controller with gear modes and RGB/buzzer control
 - URDF robot description and visualization
 - Complete launch system with configurable options
-- IMU data, battery monitoring, and odometry publishing
-- ZED2i stereo camera integration with depth sensing
-- SLAM mapping and localization capabilities
+- IMU data, battery monitoring, and joint state publishing
+- ZED2i stereo camera integration with Visual-Inertial SLAM
+- VI-SLAM mapping, localization, and navigation capabilities
+- Multi-map support with professional map management tools
 - Motor calibration tools and parameter optimization
 
 **🔧 Architecture**
 - USB serial communication (115200 baud) at `/dev/ttyUSB0`
 - 4x mecanum wheels with 520 CPR encoders
 - IMU (accelerometer, gyroscope, magnetometer)
-- ZED2i stereo camera with depth and visual odometry
+- ZED2i stereo camera with Visual-Inertial SLAM capabilities
 - RGB lights and buzzer control via topics
-- SLAM-capable with nav2 integration
+- VI-SLAM with spatial mapping, loop closure, and area memory
+- Multi-map system with named map management
 
 **📋 Key Topics**
 - `/cmd_vel` - Velocity commands
@@ -101,9 +109,9 @@ ros2 launch robot_bringup robot_slam.launch.py
 - `/rgb_light` - RGB light control
 - `/buzzer` - Buzzer control
 - `/zed2i/zed_node/*` - ZED2i camera topics (image, depth, point cloud)
-- `/scan` - 2D laser scan from depth data
-- `/map` - SLAM-generated map
-- `/pose` - Robot pose estimation
+- `/zed2i/zed_node/pose` - ZED VI-SLAM pose tracking
+- `/zed2i/zed_node/path_map` - VI-SLAM trajectory in map frame
+- `/zed2i/zed_node/mapping/fused_cloud` - Spatial mapping point cloud
 
 ## Development
 
@@ -138,7 +146,9 @@ ros2 topic echo /joy
 ros2 topic echo /zed2i/zed_node/rgb/image_rect_color
 ros2 topic echo /zed2i/zed_node/depth/depth_registered
 
-# Monitor SLAM
-ros2 topic echo /scan
-ros2 topic echo /map
+# Monitor VI-SLAM
+ros2 topic echo /zed2i/zed_node/pose
+ros2 topic echo /zed2i/zed_node/path_map
+ros2 topic echo /zed2i/zed_node/mapping/fused_cloud
+ros2 topic echo /zed2i/zed_node/pose/status
 ```
