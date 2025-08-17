@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    # Input/Output topics
+    input_topic: "/zed2i/zed_node/point_cloud/cloud_registered"
+    output_topic: "/cleaned_mapping_cloud"
+    
+    # Diagnostics
+    enable_diagnostics: true
+    diagnostics_frequency: 10  # Print stats every N messages
+    
+    # Phase 2 parameters (not used yet)
+    # enable_statistical_filter: false
+    # k_neighbors: 20
+    # std_dev_threshold: 1.5
+    # enable_voxel_filter: false
+    # voxel_leaf_size: 0.01
+    
+    # Phase 3 parameters (not used yet)
+    # enable_temporal_filter: false
+    # frame_buffer_size: 3
+    # persistence_threshold: 2
+    
+    # Phase 4 parameters (not used yet)
+    # enable_mirror_detection: false
+    # ransac_distance_threshold: 0.02
+    # ransac_max_iterations: 1000

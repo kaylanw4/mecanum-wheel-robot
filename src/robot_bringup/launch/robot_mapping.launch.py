@@ -41,11 +41,18 @@ def generate_launch_description():
         description='Name of the ZED2i camera'
     )
     
+    enable_preprocessing_arg = DeclareLaunchArgument(
+        'enable_preprocessing',
+        default_value='true',
+        description='Whether to enable point cloud preprocessing'
+    )
+    
     # Get launch configurations
     use_rviz = LaunchConfiguration('use_rviz')
     use_joystick = LaunchConfiguration('use_joystick')
     serial_port = LaunchConfiguration('serial_port')
     camera_name = LaunchConfiguration('camera_name')
+    enable_preprocessing = LaunchConfiguration('enable_preprocessing')
     
     # Configuration files
     hardware_config = PathJoinSubstitution([
@@ -56,6 +63,11 @@ def generate_launch_description():
     zed_mapping_config = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
         'config', 'zed_mapping_config.yaml'
+    ])
+    
+    preprocessing_config = PathJoinSubstitution([
+        FindPackageShare('robot_pointcloud_preprocessing'),
+        'config', 'preprocessing_params.yaml'
     ])
     
     # Robot description with VI-SLAM URDF
@@ -132,6 +144,23 @@ def generate_launch_description():
         ]
     )
     
+    # Point cloud preprocessing node (conditional)
+    preprocessing_node = Node(
+        package='robot_pointcloud_preprocessing',
+        executable='mapping_preprocessor_node',
+        name='mapping_preprocessor',
+        output='screen',
+        parameters=[
+            preprocessing_config,
+            {
+                'input_topic': '/zed2i/zed_node/point_cloud/cloud_registered',
+                'output_topic': '/cleaned_mapping_cloud',
+                'enable_diagnostics': True,
+            }
+        ],
+        condition=IfCondition(enable_preprocessing)
+    )
+    
     # Debug: Log the configuration being used
     debug_config_info = LogInfo(
         msg=['Using ZED Mapping config: ', zed_mapping_config]
@@ -153,10 +182,10 @@ def generate_launch_description():
         }.items()
     )
     
-    # RViz with mapping visualization (conditional)
+    # RViz with optimized mapping visualization (conditional)
     rviz_config_file = PathJoinSubstitution([
         FindPackageShare('robot_bringup'),
-        'config', 'mapping_view.rviz'
+        'config', 'mapping_preprocessing_view.rviz'
     ])
     
     rviz_node = Node(
@@ -177,6 +206,7 @@ def generate_launch_description():
         use_joystick_arg,
         serial_port_arg,
         camera_name_arg,
+        enable_preprocessing_arg,
         
         # Debug information
         debug_config_info,
@@ -189,6 +219,9 @@ def generate_launch_description():
         # Joystick control (conditional)
         joy_node,
         yahboom_joystick,
+        
+        # Point cloud preprocessing (conditional)
+        preprocessing_node,
         
         # ZED MAPPING (primary odometry + spatial mapping)
         zed_camera_launch,

@@ -71,13 +71,19 @@
     bt:
       bt_enabled: false
       
+    # Point cloud settings optimized for preprocessing pipeline
+    point_cloud:
+      pointcloud_enabled: true
+      pointcloud_freq: 10.0         # 10Hz for preprocessing (reduced from max)
+      point_cloud_resolution: 'MEDIUM'  # Balance quality vs performance
+      
     # Spatial mapping - ENABLED for fresh map creation
     mapping:
       mapping_enabled: true
       resolution: 0.05              # 5cm resolution for detailed mapping
       max_mapping_range: 15.0       # 15 meter mapping range
-      fused_point_cloud_freq: 2.0   # 2Hz point cloud publishing
+      fused_point_cloud_freq: 1.0   # 1Hz fused cloud (reduced for stability)
       
       # Mapping-specific parameters
-      map_publish_freq: 1.0         # 1Hz map publishing rate
+      map_publish_freq: 0.5         # 0.5Hz map publishing rate (reduced load)
       save_map_on_shutdown: false   # Don't auto-save during mapping (use script instead)
